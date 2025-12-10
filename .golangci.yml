@@ -1,0 +1,70 @@
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - gosec
+    - unconvert
+    - unparam
+
+linters-settings:
+  errcheck:
+    # Allow blank identifier assignments for intentionally ignored errors
+    check-blank: false
+    # List of functions to exclude from checking
+    exclude-functions:
+      - fmt.Sscanf  # Best-effort parsing in pagination/version resolution
+
+  gosec:
+    # Don't warn about ignored errors from fmt.Sscanf
+    excludes:
+      - G104  # Errors unhandled
+
+  revive:
+    rules:
+      # Package comments are properly documented
+      - name: package-comments
+        disabled: false
+      # Context should be first parameter
+      - name: context-as-argument
+        disabled: false
+
+issues:
+  # Exclude specific linter checks for intentionally ignored errors
+  exclude-rules:
+    # Ignore errcheck for fmt.Sscanf - we intentionally ignore errors for best-effort parsing
+    - path: internal/server/storage\.go
+      linters:
+        - errcheck
+      text: "Error return value of `fmt.Sscanf` is not checked"
+
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - unparam
+
+  # Maximum issues count per linter
+  max-issues-per-linter: 0
+  # Maximum count of issues with the same text
+  max-same-issues: 0
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
