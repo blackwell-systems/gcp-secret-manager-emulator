@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Run tests
         run: go test -v -race ./...
@@ -51,7 +51,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Get version from tag
         id: version
@@ -118,7 +118,7 @@ jobs:
           ## Stats
 
           - **Test Coverage:** ${{ steps.coverage.outputs.COVERAGE }}
-          - **Go Version:** 1.21+
+          - **Go Version:** 1.24+
           - **Commits:** ${{ steps.changelog.outputs.COMMIT_COUNT }}
           - **Platforms:** Linux, macOS, Windows
 
