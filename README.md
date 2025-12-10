@@ -133,9 +133,11 @@ Flags:
   --log-level string   Log level (default "info")
 ```
 
-## Architecture
+## Documentation
 
-See [docs/DESIGN.md](docs/DESIGN.md) for implementation details, API coverage, and design decisions.
+- **[API Reference](API.md)** - Complete API documentation with examples
+- **[Architecture Guide](ARCHITECTURE.md)** - System design, components, and diagrams
+- **[Design Document](docs/DESIGN.md)** - Implementation details and decisions
 
 ## Testing
 
