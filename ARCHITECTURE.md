@@ -16,24 +16,23 @@ The GCP Secret Manager Emulator is a lightweight gRPC server that implements the
 ## System Architecture
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
 graph TB
-    subgraph "Client Applications"
-        A[Go Application<br/>cloud.google.com/go/secretmanager]
-        B[Python Application<br/>google-cloud-secret-manager]
-        C[Integration Tests<br/>CI/CD Pipeline]
+    subgraph ClientApps["Client Applications"]
+        A["Go Application<br/>cloud.google.com/go/secretmanager"]
+        B["Python Application<br/>google-cloud-secret-manager"]
+        C["Integration Tests<br/>CI/CD Pipeline"]
     end
 
-    subgraph "Emulator Server"
-        D[gRPC Server<br/>Port 9090]
-        E[Server Implementation<br/>SecretManagerServiceServer]
-        F[Storage Layer<br/>Thread-Safe In-Memory]
+    subgraph EmulatorServer["Emulator Server"]
+        D["gRPC Server<br/>Port 9090"]
+        E["Server Implementation<br/>SecretManagerServiceServer"]
+        F["Storage Layer<br/>Thread-Safe In-Memory"]
     end
 
-    subgraph "Data Storage"
-        G[(Secrets Map<br/>sync.RWMutex)]
-        H[Secret Metadata<br/>Name, Labels, CreateTime]
-        I[Secret Versions<br/>Version ID, Payload, State]
+    subgraph DataStorage["Data Storage"]
+        G[("Secrets Map<br/>sync.RWMutex")]
+        H["Secret Metadata<br/>Name, Labels, CreateTime"]
+        I["Secret Versions<br/>Version ID, Payload, State"]
     end
 
     A -->|gRPC| D
@@ -45,10 +44,10 @@ graph TB
     G --> H
     G --> I
 
-    style D fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style E fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style F fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style G fill:#1f2937,stroke:#6b7280,stroke-width:2px
+    classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
+    classDef storageClass fill:#1f2937,stroke:#6b7280,stroke-width:2px
+    class D,E,F serverClass
+    class G storageClass
 ```
 
 ## Component Architecture
@@ -58,7 +57,6 @@ graph TB
 The server layer implements the `SecretManagerServiceServer` interface from the official GCP protobuf definitions.
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
 classDiagram
     class SecretManagerServiceServer {
         <<interface>>
@@ -102,8 +100,8 @@ classDiagram
     SecretManagerServiceServer <|.. Server : implements
     Server --> Storage : uses
 
-    style Server fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style Storage fill:#1a472a,stroke:#2ea043,stroke-width:2px
+    classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
+    class Server,Storage serverClass
 ```
 
 ### Storage Layer
@@ -111,7 +109,7 @@ classDiagram
 The storage layer maintains in-memory state with thread-safe access.
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 classDiagram
     class Storage {
         -mu sync.RWMutex
@@ -146,9 +144,10 @@ classDiagram
     Storage --> StoredSecret : manages
     StoredSecret --> StoredVersion : contains
 
-    style Storage fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style StoredSecret fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    style StoredVersion fill:#1f2937,stroke:#6b7280,stroke-width:2px
+    classDef primaryClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
+    classDef dataClass fill:#1f2937,stroke:#6b7280,stroke-width:2px
+    class Storage primaryClass
+    class StoredSecret,StoredVersion dataClass
 ```
 
 ## Request Flow
@@ -156,7 +155,7 @@ classDiagram
 ### Create Secret with Version
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -193,15 +192,12 @@ sequenceDiagram
         St-->>-S: SecretVersion metadata
         S-->>-C: SecretVersion metadata
     end
-
-    style S fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style St fill:#1a472a,stroke:#2ea043,stroke-width:2px
 ```
 
 ### Access Secret Version
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -229,9 +225,6 @@ sequenceDiagram
             S-->>-C: Payload + metadata
         end
     end
-
-    style S fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style St fill:#1a472a,stroke:#2ea043,stroke-width:2px
 ```
 
 ## Thread Safety Model
@@ -239,7 +232,7 @@ sequenceDiagram
 The emulator uses `sync.RWMutex` to protect concurrent access to the secrets map:
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 stateDiagram-v2
     [*] --> Unlocked
 
@@ -300,18 +293,18 @@ stateDiagram-v2
 The emulator follows GCP Secret Manager naming conventions:
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 graph LR
     A[projects/test-project] --> B[secrets/my-secret]
     B --> C[versions/1]
     B --> D[versions/2]
     B --> E[versions/latest]
 
-    style A fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    style B fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    style C fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    style D fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    style E fill:#1a472a,stroke:#2ea043,stroke-width:2px
+
+
+
+
+
 ```
 
 **Format:**
@@ -329,7 +322,7 @@ graph LR
 List operations support cursor-based pagination:
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -345,7 +338,7 @@ sequenceDiagram
 
     Note over C,S: Empty token means no more results
 
-    style S fill:#1a472a,stroke:#2ea043,stroke-width:2px
+
 ```
 
 **Implementation:**
@@ -358,19 +351,19 @@ sequenceDiagram
 ### Standalone Binary
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 graph LR
     A[go install] --> B[~/go/bin/server]
     B --> C[./server --port 9090]
     C --> D[gRPC Server :9090]
 
-    style D fill:#1a472a,stroke:#2ea043,stroke-width:2px
+
 ```
 
 ### Docker Container
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 graph TB
     A[Dockerfile] --> B[Multi-stage Build]
     B --> C[Builder: golang:alpine]
@@ -380,14 +373,14 @@ graph TB
     D --> F[Container Image<br/>amd64 + arm64]
     F --> G[Run on Port 9090]
 
-    style F fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style G fill:#1a472a,stroke:#2ea043,stroke-width:2px
+
+
 ```
 
 ### Embedded in Tests
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 graph TB
     A[Go Test File] --> B[import github.com/.../internal/server]
     B --> C[server.NewServer]
@@ -396,14 +389,14 @@ graph TB
     E --> F[net.Listen :0]
     F --> G[Test Against Emulator]
 
-    style C fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style G fill:#1a472a,stroke:#2ea043,stroke-width:2px
+
+
 ```
 
 ## Testing Architecture
 
 ```mermaid
-%%{init: {'theme':'dark'}}%%
+
 graph TB
     subgraph "Test Suites"
         A[Unit Tests<br/>internal/server]
@@ -427,10 +420,10 @@ graph TB
     H[Coverage: 87%] --> A
     H --> B
 
-    style A fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style B fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style C fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    style H fill:#1f2937,stroke:#6b7280,stroke-width:2px
+
+
+
+
 ```
 
 **Test Strategy:**
