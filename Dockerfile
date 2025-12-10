@@ -13,8 +13,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the mock server binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o gcp-secret-manager-mock ./cmd/gcp-secret-manager-mock
+# Build the server binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server ./cmd/server
 
 # Final stage - minimal image
 FROM alpine:latest
@@ -24,7 +24,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/gcp-secret-manager-mock .
+COPY --from=builder /build/server .
 
 # Expose gRPC port
 EXPOSE 9090
@@ -44,4 +44,4 @@ ENV GCP_MOCK_PORT=9090 \
 # HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
 #   CMD grpc_health_probe -addr=:9090 || exit 1
 
-ENTRYPOINT ["/app/gcp-secret-manager-mock"]
+ENTRYPOINT ["/app/server"]
