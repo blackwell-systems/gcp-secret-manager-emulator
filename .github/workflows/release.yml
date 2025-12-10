@@ -216,6 +216,8 @@ jobs:
           files: |
             LICENSE
             README.md
+            ARCHITECTURE.md
+            API.md
             docs/DESIGN.md
 
   update-pkg-go-dev:
