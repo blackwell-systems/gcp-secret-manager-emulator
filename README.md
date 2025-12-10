@@ -1,0 +1,1 @@
+# gcp-secret-manager-emulator
