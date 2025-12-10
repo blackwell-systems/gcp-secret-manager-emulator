@@ -46,7 +46,9 @@ graph TB
 
     classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
     classDef storageClass fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    class D,E,F serverClass
+    class D serverClass
+    class E serverClass
+    class F serverClass
     class G storageClass
 ```
 
@@ -101,7 +103,8 @@ classDiagram
     Server --> Storage : uses
 
     classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
-    class Server,Storage serverClass
+    class Server serverClass
+    class Storage serverClass
 ```
 
 ### Storage Layer
@@ -146,7 +149,8 @@ classDiagram
     classDef primaryClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
     classDef dataClass fill:#1f2937,stroke:#6b7280,stroke-width:2px
     class Storage primaryClass
-    class StoredSecret,StoredVersion dataClass
+    class StoredSecret dataClass
+    class StoredVersion dataClass
 ```
 
 ## Request Flow
