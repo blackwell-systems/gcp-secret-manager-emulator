@@ -109,7 +109,6 @@ classDiagram
 The storage layer maintains in-memory state with thread-safe access.
 
 ```mermaid
-
 classDiagram
     class Storage {
         -mu sync.RWMutex
@@ -155,7 +154,6 @@ classDiagram
 ### Create Secret with Version
 
 ```mermaid
-
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -197,7 +195,6 @@ sequenceDiagram
 ### Access Secret Version
 
 ```mermaid
-
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -232,7 +229,6 @@ sequenceDiagram
 The emulator uses `sync.RWMutex` to protect concurrent access to the secrets map:
 
 ```mermaid
-
 stateDiagram-v2
     [*] --> Unlocked
 
@@ -293,7 +289,6 @@ stateDiagram-v2
 The emulator follows GCP Secret Manager naming conventions:
 
 ```mermaid
-
 graph LR
     A[projects/test-project] --> B[secrets/my-secret]
     B --> C[versions/1]
@@ -322,7 +317,6 @@ graph LR
 List operations support cursor-based pagination:
 
 ```mermaid
-
 sequenceDiagram
     participant C as Client
     participant S as Server
@@ -351,7 +345,6 @@ sequenceDiagram
 ### Standalone Binary
 
 ```mermaid
-
 graph LR
     A[go install] --> B[~/go/bin/server]
     B --> C[./server --port 9090]
@@ -363,7 +356,6 @@ graph LR
 ### Docker Container
 
 ```mermaid
-
 graph TB
     A[Dockerfile] --> B[Multi-stage Build]
     B --> C[Builder: golang:alpine]
@@ -380,7 +372,6 @@ graph TB
 ### Embedded in Tests
 
 ```mermaid
-
 graph TB
     A[Go Test File] --> B[import github.com/.../internal/server]
     B --> C[server.NewServer]
@@ -396,7 +387,6 @@ graph TB
 ## Testing Architecture
 
 ```mermaid
-
 graph TB
     subgraph "Test Suites"
         A[Unit Tests<br/>internal/server]
