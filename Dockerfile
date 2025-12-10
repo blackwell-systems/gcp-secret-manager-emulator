@@ -19,7 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server ./cmd/serv
 # Final stage - minimal image
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates with --no-scripts to avoid trigger issues in ARM64 QEMU builds
+RUN apk --no-cache add --no-scripts ca-certificates && \
+    update-ca-certificates || true
 
 WORKDIR /app
 
