@@ -27,6 +27,10 @@
   - [Testing Guide](API-REFERENCE.md#testing-strategies)
   - [Contributing](API-REFERENCE.md#contributing)
 
+- **Legal**
+  - [Brand Guidelines](BRAND.md)
+  - [License](https://github.com/blackwell-systems/gcp-secret-manager-emulator/blob/main/LICENSE)
+
 - **Links**
   - [![GitHub](https://icongr.am/simple/github.svg?size=16&colored=false) GitHub Repo](https://github.com/blackwell-systems/gcp-secret-manager-emulator)
   - [![Issues](https://icongr.am/octicons/issue-opened.svg?size=16) Issues](https://github.com/blackwell-systems/gcp-secret-manager-emulator/issues)
