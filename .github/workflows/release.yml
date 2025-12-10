@@ -217,7 +217,7 @@ jobs:
             LICENSE
             README.md
             ARCHITECTURE.md
-            API.md
+            API-REFERENCE.md
             docs/DESIGN.md
 
   update-pkg-go-dev:
