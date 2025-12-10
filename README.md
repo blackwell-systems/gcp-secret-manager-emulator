@@ -176,6 +176,10 @@ go test -race ./...
 
 Extracted from [vaultmux](https://github.com/blackwell-systems/vaultmux) where it powers GCP backend integration tests. Used in production CI pipelines.
 
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by Google LLC or Google Cloud Platform. "Google Cloud", "Secret Manager", and related trademarks are property of Google LLC. This is an independent open-source implementation for testing and development purposes.
+
 ## License
 
 Apache License 2.0 - See [LICENSE](LICENSE) for details.
