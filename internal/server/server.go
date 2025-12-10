@@ -1,3 +1,15 @@
+// Package server implements a gRPC emulator for Google Cloud Secret Manager API.
+//
+// This package provides a complete mock implementation of the Secret Manager v1 API
+// for local development and testing. It implements the SecretManagerServiceServer interface
+// with in-memory storage, eliminating the need for GCP credentials or network access.
+//
+// The server supports all core operations including secret creation, version management,
+// listing with pagination, and deletion. All operations are thread-safe and can handle
+// concurrent requests.
+//
+// For standalone usage, see cmd/server. For embedded testing, import this package
+// directly and create a server with NewServer().
 package server
 
 import (
@@ -11,6 +23,16 @@ import (
 
 // Server implements the SecretManagerServiceServer interface.
 // It provides a mock implementation of GCP Secret Manager for testing.
+//
+// The server maintains in-memory storage of secrets and versions with thread-safe
+// access. All gRPC methods are implemented to match GCP Secret Manager behavior
+// for common operations.
+//
+// Usage:
+//
+//	server := server.NewServer()
+//	grpcServer := grpc.NewServer()
+//	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, server)
 type Server struct {
 	secretmanagerpb.UnimplementedSecretManagerServiceServer
 	storage *Storage
