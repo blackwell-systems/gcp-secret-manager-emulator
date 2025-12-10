@@ -139,7 +139,6 @@ Flags:
 
 - **[API Reference](API-REFERENCE.md)** - Complete API documentation with examples
 - **[Architecture Guide](ARCHITECTURE.md)** - System design, components, and diagrams
-- **[Design Document](docs/DESIGN.md)** - Implementation details and decisions
 
 ## Testing
 

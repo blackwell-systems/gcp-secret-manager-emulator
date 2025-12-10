@@ -135,9 +135,10 @@ Flags:
 
 ## Documentation
 
-- **[API Reference](API.md)** - Complete API documentation with examples
+📚 **[View Full Documentation](https://blackwell-systems.github.io/gcp-secret-manager-emulator/)**
+
+- **[API Reference](API-REFERENCE.md)** - Complete API documentation with examples
 - **[Architecture Guide](ARCHITECTURE.md)** - System design, components, and diagrams
-- **[Design Document](docs/DESIGN.md)** - Implementation details and decisions
 
 ## Testing
 

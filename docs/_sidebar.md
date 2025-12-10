@@ -9,7 +9,6 @@
 - **Reference**
   - [API Reference](API-REFERENCE.md)
   - [Architecture](ARCHITECTURE.md)
-  - [Design Document](DESIGN.md)
 
 - **Usage**
   - [Go Client Examples](/#use-with-gcp-sdk)

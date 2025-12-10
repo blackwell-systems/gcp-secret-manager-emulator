@@ -218,7 +218,6 @@ jobs:
             README.md
             ARCHITECTURE.md
             API-REFERENCE.md
-            docs/DESIGN.md
 
   update-pkg-go-dev:
     name: Update pkg.go.dev
