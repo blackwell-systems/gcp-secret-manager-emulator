@@ -72,8 +72,9 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.61.0
+          version: v1.62
           args: --timeout=5m
+          skip-cache: true
 
   build:
     name: Build

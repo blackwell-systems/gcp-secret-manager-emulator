@@ -1,6 +1,6 @@
 module github.com/blackwell-systems/gcp-secret-manager-emulator
 
-go 1.25.4
+go 1.24.0
 
 require (
 	cloud.google.com/go/secretmanager v1.16.0

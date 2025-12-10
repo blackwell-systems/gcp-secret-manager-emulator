@@ -29,7 +29,8 @@ jobs:
       - name: Run lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.61.0
+          version: v1.62
+          skip-cache: true
 
       - name: Verify build
         run: go build -v ./...
