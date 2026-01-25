@@ -7,6 +7,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -390,9 +391,18 @@ func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSiz
 	// Parse filter to determine which states to include
 	includeStates := parseStateFilter(filter)
 
-	// Collect versions matching filter
+	// Collect version IDs and sort for deterministic ordering
+	var versionIDs []string
+	for versionID := range stored.Versions {
+		versionIDs = append(versionIDs, versionID)
+	}
+	sort.Strings(versionIDs)
+
+	// Collect versions matching filter in sorted order
 	var allVersions []*secretmanagerpb.SecretVersion
-	for versionID, version := range stored.Versions {
+	for _, versionID := range versionIDs {
+		version := stored.Versions[versionID]
+
 		// Apply state filter if specified
 		if len(includeStates) > 0 && !includeStates[version.State] {
 			continue

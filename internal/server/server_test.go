@@ -667,8 +667,8 @@ func TestServer_ListSecretVersions(t *testing.T) {
 	})
 
 	t.Run("Pagination", func(t *testing.T) {
-		// Add more versions for pagination test
-		for i := 4; i <= 10; i++ {
+		// Add more versions for pagination test (total 150 versions)
+		for i := 4; i <= 150; i++ {
 			_, err := server.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
 				Parent: secretName,
 				Payload: &secretmanagerpb.SecretPayload{
@@ -680,52 +680,101 @@ func TestServer_ListSecretVersions(t *testing.T) {
 			}
 		}
 
-		// First page
+		// Test small page size
 		resp, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 			Parent:   secretName,
-			PageSize: 5,
+			PageSize: 10,
 		})
 		if err != nil {
 			t.Fatalf("ListSecretVersions() failed: %v", err)
 		}
-		if len(resp.Versions) != 5 {
-			t.Errorf("First page returned %d versions, want 5", len(resp.Versions))
+		if len(resp.Versions) != 10 {
+			t.Errorf("First page returned %d versions, want 10", len(resp.Versions))
 		}
 		if resp.NextPageToken == "" {
 			t.Error("First page should have NextPageToken")
 		}
 
-		// Second page
+		// Test second page
 		resp2, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 			Parent:    secretName,
-			PageSize:  5,
+			PageSize:  10,
 			PageToken: resp.NextPageToken,
 		})
 		if err != nil {
 			t.Fatalf("ListSecretVersions() page 2 failed: %v", err)
 		}
-		if len(resp2.Versions) != 5 {
-			t.Errorf("Second page returned %d versions, want 5", len(resp2.Versions))
+		if len(resp2.Versions) != 10 {
+			t.Errorf("Second page returned %d versions, want 10", len(resp2.Versions))
+		}
+		if resp2.NextPageToken == "" {
+			t.Error("Second page should have NextPageToken (150 total versions)")
 		}
 
-		// Third page (should have no more results)
-		if resp2.NextPageToken != "" {
-			resp3, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+		// Test default page size (should be 100)
+		respDefault, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent: secretName,
+		})
+		if err != nil {
+			t.Fatalf("ListSecretVersions() with default page size failed: %v", err)
+		}
+		if len(respDefault.Versions) != 100 {
+			t.Errorf("Default page size returned %d versions, want 100", len(respDefault.Versions))
+		}
+		if respDefault.NextPageToken == "" {
+			t.Error("Default page should have NextPageToken (150 total versions)")
+		}
+
+		// Get second page with default size
+		respDefault2, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent:    secretName,
+			PageToken: respDefault.NextPageToken,
+		})
+		if err != nil {
+			t.Fatalf("ListSecretVersions() default page 2 failed: %v", err)
+		}
+		if len(respDefault2.Versions) != 50 {
+			t.Errorf("Second default page returned %d versions, want 50 (remaining)", len(respDefault2.Versions))
+		}
+		if respDefault2.NextPageToken != "" {
+			t.Error("Last page should have empty NextPageToken")
+		}
+
+		// Verify all versions are unique and complete
+		allVersions := make(map[string]bool)
+		pageToken := ""
+		totalCount := 0
+		for {
+			resp, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 				Parent:    secretName,
-				PageSize:  5,
-				PageToken: resp2.NextPageToken,
+				PageSize:  25,
+				PageToken: pageToken,
 			})
 			if err != nil {
-				t.Fatalf("ListSecretVersions() page 3 failed: %v", err)
+				t.Fatalf("ListSecretVersions() iteration failed: %v", err)
 			}
-			if resp3.NextPageToken != "" {
-				t.Error("Last page should have empty NextPageToken")
+
+			for _, v := range resp.Versions {
+				if allVersions[v.Name] {
+					t.Errorf("Duplicate version in pagination: %s", v.Name)
+				}
+				allVersions[v.Name] = true
+				totalCount++
 			}
+
+			if resp.NextPageToken == "" {
+				break
+			}
+			pageToken = resp.NextPageToken
+		}
+
+		if totalCount != 150 {
+			t.Errorf("Total versions across all pages: %d, want 150", totalCount)
 		}
 	})
 
 	t.Run("FilterByState", func(t *testing.T) {
-		// Note: Pagination test added versions 4-10, so we now have 10 total versions
+		// Note: Pagination test added versions 4-150, so we now have 150 total versions
 		// Disable version 2
 		_, err := server.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
 			Name: fmt.Sprintf("%s/versions/2", secretName),
@@ -734,7 +783,8 @@ func TestServer_ListSecretVersions(t *testing.T) {
 			t.Fatalf("DisableSecretVersion() failed: %v", err)
 		}
 
-		// Filter for ENABLED only (should be 9: versions 1,3-10)
+		// Filter for ENABLED only (should be 149: versions 1,3-150)
+		// Default page size is 100, so we'll get first page
 		resp, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 			Parent: secretName,
 			Filter: "state:ENABLED",
@@ -742,13 +792,36 @@ func TestServer_ListSecretVersions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListSecretVersions(filter=ENABLED) failed: %v", err)
 		}
-		if len(resp.Versions) != 9 {
-			t.Errorf("ListSecretVersions(filter=ENABLED) returned %d versions, want 9", len(resp.Versions))
+		if len(resp.Versions) != 100 {
+			t.Errorf("ListSecretVersions(filter=ENABLED) first page returned %d versions, want 100", len(resp.Versions))
 		}
 		for _, v := range resp.Versions {
 			if v.State != secretmanagerpb.SecretVersion_ENABLED {
 				t.Errorf("Version %s has state %v, want ENABLED", v.Name, v.State)
 			}
+		}
+
+		// Count all ENABLED versions across pages
+		enabledCount := 0
+		pageToken := ""
+		for {
+			resp, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+				Parent:    secretName,
+				Filter:    "state:ENABLED",
+				PageSize:  50,
+				PageToken: pageToken,
+			})
+			if err != nil {
+				t.Fatalf("ListSecretVersions(filter=ENABLED) failed: %v", err)
+			}
+			enabledCount += len(resp.Versions)
+			if resp.NextPageToken == "" {
+				break
+			}
+			pageToken = resp.NextPageToken
+		}
+		if enabledCount != 149 {
+			t.Errorf("Total ENABLED versions: %d, want 149", enabledCount)
 		}
 
 		// Filter for DISABLED only (should be 1: version 2)
@@ -766,15 +839,15 @@ func TestServer_ListSecretVersions(t *testing.T) {
 			t.Errorf("Version has state %v, want DISABLED", resp.Versions[0].State)
 		}
 
-		// No filter - should return all 10 versions
+		// No filter - should return all 150 versions (first page of 100)
 		resp, err = server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 			Parent: secretName,
 		})
 		if err != nil {
 			t.Fatalf("ListSecretVersions(no filter) failed: %v", err)
 		}
-		if len(resp.Versions) != 10 {
-			t.Errorf("ListSecretVersions(no filter) returned %d versions, want 10", len(resp.Versions))
+		if len(resp.Versions) != 100 {
+			t.Errorf("ListSecretVersions(no filter) returned %d versions, want 100 (first page)", len(resp.Versions))
 		}
 	})
 }
