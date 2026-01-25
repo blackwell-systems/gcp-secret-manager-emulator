@@ -50,7 +50,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.23'
+        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.24'
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.out
