@@ -32,9 +32,22 @@ A standalone gRPC server that implements the Google Cloud Secret Manager API for
 
 ### Secret Versions
 - `AddSecretVersion` - Add new version with payload
-- `AccessSecretVersion` - Retrieve version payload
-- `ListSecretVersions` - List all versions for a secret
+- `GetSecretVersion` - Retrieve version metadata
+- `AccessSecretVersion` - Retrieve version payload (respects version state)
+- `ListSecretVersions` - List all versions with pagination and filtering
+- `EnableSecretVersion` - Enable a disabled version
+- `DisableSecretVersion` - Disable a version (prevents access)
+
+## Unimplemented Operations
+
+The following operations return `Unimplemented` errors. See [API Reference](API-REFERENCE.md#unimplemented-methods) for workarounds.
+
+### Not Yet Implemented
+- `UpdateSecret` - Modify secret metadata (labels, annotations)
 - `DestroySecretVersion` - Permanently destroy a version
+- IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
+
+**Rationale:** These operations are rarely needed for local testing and CI/CD workflows. The emulator focuses on core secret storage, retrieval, and version state management.
 
 ## Quick Start
 

@@ -339,7 +339,211 @@ result, err := client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVers
 **Errors:**
 - `InvalidArgument` - Missing name or invalid format
 - `NotFound` - Secret, version doesn't exist, or no enabled versions
-- `FailedPrecondition` - Version exists but is not ENABLED
+- `FailedPrecondition` - Version exists but is not ENABLED (disabled or destroyed)
+
+---
+
+### ListSecretVersions
+
+Lists all versions of a secret with pagination and filtering support.
+
+**Request:**
+```protobuf
+message ListSecretVersionsRequest {
+  string parent = 1;     // Required: "projects/{project}/secrets/{secret-id}"
+  int32 page_size = 2;   // Optional: Max results per page (default: 100)
+  string page_token = 3; // Optional: Token from previous response
+  string filter = 4;     // Optional: Filter expression (e.g., "state:ENABLED")
+}
+```
+
+**Response:**
+```protobuf
+message ListSecretVersionsResponse {
+  repeated SecretVersion versions = 1; // Versions on this page
+  string next_page_token = 2;          // Token for next page (empty if done)
+}
+```
+
+**Example (Go):**
+```go
+// List all versions
+resp, err := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+    Parent: "projects/test-project/secrets/my-api-key",
+})
+
+for _, version := range resp.Versions {
+    fmt.Printf("Version: %s, State: %v\n", version.Name, version.State)
+}
+
+// List only enabled versions
+resp, err := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+    Parent: "projects/test-project/secrets/my-api-key",
+    Filter: "state:ENABLED",
+})
+
+// List only disabled versions
+resp, err := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+    Parent: "projects/test-project/secrets/my-api-key",
+    Filter: "state:DISABLED",
+})
+```
+
+**Example (Python):**
+```python
+# List all versions
+request = secretmanager.ListSecretVersionsRequest(
+    parent="projects/test-project/secrets/my-api-key"
+)
+response = client.list_secret_versions(request=request)
+
+for version in response.versions:
+    print(f"Version: {version.name}, State: {version.state}")
+
+# Filter by state
+request = secretmanager.ListSecretVersionsRequest(
+    parent="projects/test-project/secrets/my-api-key",
+    filter="state:ENABLED"
+)
+```
+
+**Supported Filters:**
+- `state:ENABLED` - Only enabled versions
+- `state:DISABLED` - Only disabled versions
+- `state:DESTROYED` - Only destroyed versions
+- No filter - All versions
+
+**Errors:**
+- `InvalidArgument` - Missing parent
+- `NotFound` - Secret doesn't exist
+
+---
+
+### DisableSecretVersion
+
+Disables a secret version, preventing access via AccessSecretVersion.
+
+**Request:**
+```protobuf
+message DisableSecretVersionRequest {
+  string name = 1; // Required: "projects/{project}/secrets/{secret}/versions/{version}"
+}
+```
+
+**Response:**
+```protobuf
+message SecretVersion {
+  string name = 1;
+  google.protobuf.Timestamp create_time = 2;
+  State state = 3; // Will be DISABLED
+}
+```
+
+**Example (Go):**
+```go
+// Disable a specific version
+version, err := client.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+
+fmt.Println(version.State) // DISABLED
+
+// Attempting to access disabled version will fail
+_, err = client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+// Returns: FailedPrecondition error
+```
+
+**Example (Python):**
+```python
+# Disable version
+request = secretmanager.DisableSecretVersionRequest(
+    name="projects/test-project/secrets/my-api-key/versions/1"
+)
+version = client.disable_secret_version(request=request)
+
+print(version.state)  # DISABLED
+```
+
+**Behavior:**
+- Sets version state to DISABLED
+- AccessSecretVersion will return `FailedPrecondition` for disabled versions
+- Latest alias skips disabled versions (resolves to next highest ENABLED version)
+- ListSecretVersions still returns disabled versions (use filter to exclude)
+
+**Use Case - Soft Delete:**
+```go
+// Soft delete: Disable all versions instead of deleting secret
+versions, _ := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+    Parent: secretName,
+    Filter: "state:ENABLED",
+})
+
+for _, v := range versions.Versions {
+    client.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+        Name: v.Name,
+    })
+}
+
+// Now AccessSecretVersion(latest) returns NotFound (no enabled versions)
+```
+
+**Errors:**
+- `InvalidArgument` - Missing name or invalid format
+- `NotFound` - Secret or version doesn't exist
+- `FailedPrecondition` - Version is already DESTROYED
+
+---
+
+### EnableSecretVersion
+
+Re-enables a previously disabled secret version.
+
+**Request:**
+```protobuf
+message EnableSecretVersionRequest {
+  string name = 1; // Required: "projects/{project}/secrets/{secret}/versions/{version}"
+}
+```
+
+**Response:** `SecretVersion` message with state set to ENABLED
+
+**Example (Go):**
+```go
+// Re-enable a disabled version
+version, err := client.EnableSecretVersion(ctx, &secretmanagerpb.EnableSecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+
+fmt.Println(version.State) // ENABLED
+
+// Now AccessSecretVersion works again
+result, err := client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+```
+
+**Example (Python):**
+```python
+# Enable version
+request = secretmanager.EnableSecretVersionRequest(
+    name="projects/test-project/secrets/my-api-key/versions/1"
+)
+version = client.enable_secret_version(request=request)
+
+print(version.state)  # ENABLED
+```
+
+**Behavior:**
+- Sets version state to ENABLED
+- AccessSecretVersion will succeed for enabled versions
+- Latest alias includes enabled versions in resolution
+
+**Errors:**
+- `InvalidArgument` - Missing name or invalid format
+- `NotFound` - Secret or version doesn't exist
+- `FailedPrecondition` - Version is DESTROYED (cannot re-enable destroyed versions)
 
 ---
 
@@ -356,30 +560,6 @@ Updates secret metadata (labels, annotations).
 **Workaround:** Delete and recreate secret
 
 **Use Case:** Changing labels without modifying versions
-
----
-
-### ListSecretVersions
-
-Lists all versions of a secret.
-
-**Status:** Not implemented
-
-**Workaround:** Track versions externally or use only "latest"
-
-**Use Case:** Version history inspection
-
----
-
-### EnableSecretVersion / DisableSecretVersion
-
-Change version state to ENABLED or DISABLED.
-
-**Status:** Not implemented
-
-**Workaround:** All versions are always ENABLED
-
-**Use Case:** Temporarily revoke access to a version
 
 ---
 

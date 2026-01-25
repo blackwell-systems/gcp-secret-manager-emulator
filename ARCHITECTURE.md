@@ -81,10 +81,10 @@ classDiagram
         +AddSecretVersion() ✓
         +GetSecretVersion() ✓
         +AccessSecretVersion() ✓
+        +ListSecretVersions() ✓
+        +EnableSecretVersion() ✓
+        +DisableSecretVersion() ✓
         +UpdateSecret() Unimplemented
-        +ListSecretVersions() Unimplemented
-        +EnableSecretVersion() Unimplemented
-        +DisableSecretVersion() Unimplemented
         +DestroySecretVersion() Unimplemented
     }
 
@@ -280,9 +280,9 @@ stateDiagram-v2
 | Method | Status | Reason |
 |--------|--------|--------|
 | `UpdateSecret` | ❌ Unimplemented | Rarely used; secrets are immutable |
-| `ListSecretVersions` | ❌ Unimplemented | Most apps only use "latest" |
-| `EnableSecretVersion` | ❌ Unimplemented | Advanced version lifecycle |
-| `DisableSecretVersion` | ❌ Unimplemented | Advanced version lifecycle |
+| `ListSecretVersions` | ✅ Implemented | Lists all versions with state filtering |
+| `EnableSecretVersion` | ✅ Implemented | Re-enables disabled versions |
+| `DisableSecretVersion` | ✅ Implemented | Disables versions (soft-delete pattern) |
 | `DestroySecretVersion` | ❌ Unimplemented | Advanced version lifecycle |
 | IAM methods | ❌ Unimplemented | No auth/authz in testing |
 
@@ -513,7 +513,7 @@ graph TB
 
 Potential features if needed by the community:
 
-1. **ListSecretVersions** - Most requested missing feature
+1. **UpdateSecret** - Label/annotation updates without version changes
 2. **UpdateSecret** - Useful for label management
 3. **Persistence** - Optional file-based storage for long-running instances
 4. **Metrics** - Prometheus-style metrics for monitoring
