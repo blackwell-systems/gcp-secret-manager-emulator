@@ -40,7 +40,7 @@ type StoredSecret struct {
 // StoredVersion represents a single secret version.
 type StoredVersion struct {
 	// Version metadata
-	Name       string                              // Full resource name with version
+	Name       string // Full resource name with version
 	CreateTime *timestamppb.Timestamp
 	State      secretmanagerpb.SecretVersion_State // ENABLED, DISABLED, DESTROYED
 

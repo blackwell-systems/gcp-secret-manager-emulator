@@ -566,7 +566,6 @@ func TestServer_UnimplementedMethods(t *testing.T) {
 		}
 	})
 
-
 	t.Run("DestroySecretVersion", func(t *testing.T) {
 		_, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{})
 		if err == nil {
