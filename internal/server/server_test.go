@@ -666,6 +666,59 @@ func TestServer_ListSecretVersions(t *testing.T) {
 			t.Errorf("ListSecretVersions() error = %v, want NotFound", err)
 		}
 	})
+
+	t.Run("FilterByState", func(t *testing.T) {
+		// Disable version 2
+		_, err := server.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+			Name: fmt.Sprintf("%s/versions/2", secretName),
+		})
+		if err != nil {
+			t.Fatalf("DisableSecretVersion() failed: %v", err)
+		}
+
+		// Filter for ENABLED only
+		resp, err := server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent: secretName,
+			Filter: "state:ENABLED",
+		})
+		if err != nil {
+			t.Fatalf("ListSecretVersions(filter=ENABLED) failed: %v", err)
+		}
+		if len(resp.Versions) != 2 {
+			t.Errorf("ListSecretVersions(filter=ENABLED) returned %d versions, want 2", len(resp.Versions))
+		}
+		for _, v := range resp.Versions {
+			if v.State != secretmanagerpb.SecretVersion_ENABLED {
+				t.Errorf("Version %s has state %v, want ENABLED", v.Name, v.State)
+			}
+		}
+
+		// Filter for DISABLED only
+		resp, err = server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent: secretName,
+			Filter: "state:DISABLED",
+		})
+		if err != nil {
+			t.Fatalf("ListSecretVersions(filter=DISABLED) failed: %v", err)
+		}
+		if len(resp.Versions) != 1 {
+			t.Errorf("ListSecretVersions(filter=DISABLED) returned %d versions, want 1", len(resp.Versions))
+		}
+		if resp.Versions[0].State != secretmanagerpb.SecretVersion_DISABLED {
+			t.Errorf("Version has state %v, want DISABLED", resp.Versions[0].State)
+		}
+
+		// No filter - should return all 3
+		resp, err = server.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent: secretName,
+		})
+		if err != nil {
+			t.Fatalf("ListSecretVersions(no filter) failed: %v", err)
+		}
+		if len(resp.Versions) != 3 {
+			t.Errorf("ListSecretVersions(no filter) returned %d versions, want 3", len(resp.Versions))
+		}
+	})
 }
 
 func TestServer_DisableEnableSecretVersion(t *testing.T) {

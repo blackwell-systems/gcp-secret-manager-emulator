@@ -40,7 +40,7 @@ type StoredSecret struct {
 // StoredVersion represents a single secret version.
 type StoredVersion struct {
 	// Version metadata
-	Name       string // Full resource name with version
+	Name       string                              // Full resource name with version
 	CreateTime *timestamppb.Timestamp
 	State      secretmanagerpb.SecretVersion_State // ENABLED, DISABLED, DESTROYED
 
@@ -342,10 +342,42 @@ func (s *Storage) GetSecretVersion(ctx context.Context, versionName string) (*se
 	}, nil
 }
 
+// parseStateFilter parses filter string and returns map of states to include.
+// Supports filters like "state:ENABLED", "state:DISABLED", "state:DESTROYED".
+// Returns empty map if no state filter specified (include all states).
+func parseStateFilter(filter string) map[secretmanagerpb.SecretVersion_State]bool {
+	if filter == "" {
+		return nil // No filter = include all
+	}
+
+	includeStates := make(map[secretmanagerpb.SecretVersion_State]bool)
+
+	// Simple filter parser: supports "state:ENABLED", "state:DISABLED", "state:DESTROYED"
+	// GCP supports more complex filters, but this covers common testing use cases
+	filter = strings.TrimSpace(filter)
+
+	if strings.HasPrefix(filter, "state:") {
+		stateName := strings.TrimPrefix(filter, "state:")
+		stateName = strings.TrimSpace(stateName)
+
+		switch strings.ToUpper(stateName) {
+		case "ENABLED":
+			includeStates[secretmanagerpb.SecretVersion_ENABLED] = true
+		case "DISABLED":
+			includeStates[secretmanagerpb.SecretVersion_DISABLED] = true
+		case "DESTROYED":
+			includeStates[secretmanagerpb.SecretVersion_DESTROYED] = true
+		}
+	}
+
+	return includeStates
+}
+
 // ListSecretVersions returns all versions of a secret.
 // Supports pagination via pageSize and pageToken.
+// Supports filtering by state (e.g., "state:ENABLED", "state:DISABLED").
 // Returns NotFound if secret doesn't exist.
-func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSize int32, pageToken string) ([]*secretmanagerpb.SecretVersion, string, error) {
+func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSize int32, pageToken, filter string) ([]*secretmanagerpb.SecretVersion, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -355,9 +387,17 @@ func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSiz
 		return nil, "", status.Errorf(codes.NotFound, "Secret [%s] not found", parent)
 	}
 
-	// Collect all versions
+	// Parse filter to determine which states to include
+	includeStates := parseStateFilter(filter)
+
+	// Collect versions matching filter
 	var allVersions []*secretmanagerpb.SecretVersion
 	for versionID, version := range stored.Versions {
+		// Apply state filter if specified
+		if len(includeStates) > 0 && !includeStates[version.State] {
+			continue
+		}
+
 		versionName := fmt.Sprintf("%s/versions/%s", parent, versionID)
 		allVersions = append(allVersions, &secretmanagerpb.SecretVersion{
 			Name:       versionName,

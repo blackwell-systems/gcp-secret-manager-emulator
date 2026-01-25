@@ -147,13 +147,14 @@ func (s *Server) AccessSecretVersion(ctx context.Context, req *secretmanagerpb.A
 
 // ListSecretVersions lists all versions of a secret.
 // Supports pagination via page_size and page_token.
+// Supports filtering by state via filter parameter (e.g., "state:ENABLED").
 // Implements google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions
 func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest) (*secretmanagerpb.ListSecretVersionsResponse, error) {
 	if req.GetParent() == "" {
 		return nil, status.Error(codes.InvalidArgument, "parent is required")
 	}
 
-	versions, token, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken())
+	versions, token, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
 	if err != nil {
 		return nil, err
 	}
