@@ -146,24 +146,43 @@ func (s *Server) AccessSecretVersion(ctx context.Context, req *secretmanagerpb.A
 }
 
 // ListSecretVersions lists all versions of a secret.
+// Supports pagination via page_size and page_token.
 // Implements google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions
 func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest) (*secretmanagerpb.ListSecretVersionsResponse, error) {
-	// Not needed for MVP - return unimplemented
-	return nil, status.Error(codes.Unimplemented, "ListSecretVersions is not implemented in mock")
+	if req.GetParent() == "" {
+		return nil, status.Error(codes.InvalidArgument, "parent is required")
+	}
+
+	versions, token, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+
+	return &secretmanagerpb.ListSecretVersionsResponse{
+		Versions:      versions,
+		NextPageToken: token,
+	}, nil
 }
 
 // EnableSecretVersion enables a previously disabled version.
 // Implements google.cloud.secretmanager.v1.SecretManagerService.EnableSecretVersion
 func (s *Server) EnableSecretVersion(ctx context.Context, req *secretmanagerpb.EnableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
-	// Not needed for MVP - return unimplemented
-	return nil, status.Error(codes.Unimplemented, "EnableSecretVersion is not implemented in mock")
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	return s.storage.EnableSecretVersion(ctx, req.GetName())
 }
 
 // DisableSecretVersion disables a version (prevents access).
+// AccessSecretVersion will fail for disabled versions.
 // Implements google.cloud.secretmanager.v1.SecretManagerService.DisableSecretVersion
 func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.DisableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
-	// Not needed for MVP - return unimplemented
-	return nil, status.Error(codes.Unimplemented, "DisableSecretVersion is not implemented in mock")
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	return s.storage.DisableSecretVersion(ctx, req.GetName())
 }
 
 // DestroySecretVersion permanently destroys a version.

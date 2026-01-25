@@ -342,6 +342,145 @@ func (s *Storage) GetSecretVersion(ctx context.Context, versionName string) (*se
 	}, nil
 }
 
+// ListSecretVersions returns all versions of a secret.
+// Supports pagination via pageSize and pageToken.
+// Returns NotFound if secret doesn't exist.
+func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSize int32, pageToken string) ([]*secretmanagerpb.SecretVersion, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Parent is the secret name
+	stored, exists := s.secrets[parent]
+	if !exists {
+		return nil, "", status.Errorf(codes.NotFound, "Secret [%s] not found", parent)
+	}
+
+	// Collect all versions
+	var allVersions []*secretmanagerpb.SecretVersion
+	for versionID, version := range stored.Versions {
+		versionName := fmt.Sprintf("%s/versions/%s", parent, versionID)
+		allVersions = append(allVersions, &secretmanagerpb.SecretVersion{
+			Name:       versionName,
+			CreateTime: version.CreateTime,
+			State:      version.State,
+		})
+	}
+
+	// Simple pagination: start from token index
+	startIdx := 0
+	if pageToken != "" {
+		_, _ = fmt.Sscanf(pageToken, "%d", &startIdx)
+	}
+
+	// Apply page size limit
+	if pageSize <= 0 {
+		pageSize = 100 // Default page size
+	}
+
+	endIdx := startIdx + int(pageSize)
+	if endIdx > len(allVersions) {
+		endIdx = len(allVersions)
+	}
+
+	// Paginate results
+	var results []*secretmanagerpb.SecretVersion
+	if startIdx < len(allVersions) {
+		results = allVersions[startIdx:endIdx]
+	}
+
+	// Generate next page token if there are more results
+	if endIdx < len(allVersions) {
+		return results, fmt.Sprintf("%d", endIdx), nil
+	}
+	return results, "", nil
+}
+
+// DisableSecretVersion disables a version (prevents access).
+// Returns NotFound if secret or version doesn't exist.
+// Returns FailedPrecondition if version is already DESTROYED.
+func (s *Storage) DisableSecretVersion(ctx context.Context, versionName string) (*secretmanagerpb.SecretVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Parse resource name
+	parts := strings.Split(versionName, "/versions/")
+	if len(parts) != 2 {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid version name format: %s", versionName)
+	}
+
+	secretName := parts[0]
+	versionID := parts[1]
+
+	// Get secret
+	stored, exists := s.secrets[secretName]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Secret [%s] not found", secretName)
+	}
+
+	// Get version
+	version, exists := stored.Versions[versionID]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Version [%s] not found", versionName)
+	}
+
+	// Cannot disable a destroyed version
+	if version.State == secretmanagerpb.SecretVersion_DESTROYED {
+		return nil, status.Errorf(codes.FailedPrecondition, "Cannot disable version [%s]: version is DESTROYED", versionName)
+	}
+
+	// Set state to DISABLED
+	version.State = secretmanagerpb.SecretVersion_DISABLED
+
+	return &secretmanagerpb.SecretVersion{
+		Name:       versionName,
+		CreateTime: version.CreateTime,
+		State:      secretmanagerpb.SecretVersion_DISABLED,
+	}, nil
+}
+
+// EnableSecretVersion enables a previously disabled version.
+// Returns NotFound if secret or version doesn't exist.
+// Returns FailedPrecondition if version is DESTROYED.
+func (s *Storage) EnableSecretVersion(ctx context.Context, versionName string) (*secretmanagerpb.SecretVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Parse resource name
+	parts := strings.Split(versionName, "/versions/")
+	if len(parts) != 2 {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid version name format: %s", versionName)
+	}
+
+	secretName := parts[0]
+	versionID := parts[1]
+
+	// Get secret
+	stored, exists := s.secrets[secretName]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Secret [%s] not found", secretName)
+	}
+
+	// Get version
+	version, exists := stored.Versions[versionID]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Version [%s] not found", versionName)
+	}
+
+	// Cannot enable a destroyed version
+	if version.State == secretmanagerpb.SecretVersion_DESTROYED {
+		return nil, status.Errorf(codes.FailedPrecondition, "Cannot enable version [%s]: version is DESTROYED", versionName)
+	}
+
+	// Set state to ENABLED
+	version.State = secretmanagerpb.SecretVersion_ENABLED
+
+	return &secretmanagerpb.SecretVersion{
+		Name:       versionName,
+		CreateTime: version.CreateTime,
+		State:      secretmanagerpb.SecretVersion_ENABLED,
+	}, nil
+}
+
 // Clear removes all secrets from storage (useful for testing).
 func (s *Storage) Clear() {
 	s.mu.Lock()
