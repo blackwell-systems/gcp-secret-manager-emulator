@@ -92,8 +92,32 @@ func (s *Server) GetSecret(ctx context.Context, req *secretmanagerpb.GetSecretRe
 // UpdateSecret updates secret metadata (labels, annotations).
 // Implements google.cloud.secretmanager.v1.SecretManagerService.UpdateSecret
 func (s *Server) UpdateSecret(ctx context.Context, req *secretmanagerpb.UpdateSecretRequest) (*secretmanagerpb.Secret, error) {
-	// Not implemented in MVP - return unimplemented
-	return nil, status.Error(codes.Unimplemented, "UpdateSecret is not implemented in mock")
+	if req.GetSecret() == nil || req.GetSecret().GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "secret.name is required")
+	}
+
+	if req.GetUpdateMask() == nil {
+		return nil, status.Error(codes.InvalidArgument, "update_mask is required")
+	}
+
+	secretName := req.GetSecret().GetName()
+	updateMask := req.GetUpdateMask()
+
+	// Parse update mask to determine which fields to update
+	var labels, annotations map[string]string
+
+	for _, path := range updateMask.GetPaths() {
+		switch path {
+		case "labels":
+			labels = req.GetSecret().GetLabels()
+		case "annotations":
+			annotations = req.GetSecret().GetAnnotations()
+		default:
+			// Ignore unsupported fields (following GCP behavior - silently skip)
+		}
+	}
+
+	return s.storage.UpdateSecret(ctx, secretName, labels, annotations)
 }
 
 // DeleteSecret deletes a secret and all its versions.
@@ -189,8 +213,12 @@ func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.
 // DestroySecretVersion permanently destroys a version.
 // Implements google.cloud.secretmanager.v1.SecretManagerService.DestroySecretVersion
 func (s *Server) DestroySecretVersion(ctx context.Context, req *secretmanagerpb.DestroySecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
-	// Not needed for MVP - return unimplemented
-	return nil, status.Error(codes.Unimplemented, "DestroySecretVersion is not implemented in mock")
+	if req.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	// Note: etag is optional and not enforced in this implementation
+	return s.storage.DestroySecretVersion(ctx, req.GetName())
 }
 
 // IAM methods are not implemented in MVP (no authentication/authorization in mock).

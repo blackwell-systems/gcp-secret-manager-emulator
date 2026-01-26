@@ -27,6 +27,7 @@ A standalone gRPC server that implements the Google Cloud Secret Manager API for
 ### Secrets
 - `CreateSecret` - Create new secrets with labels
 - `GetSecret` - Retrieve secret metadata
+- `UpdateSecret` - Modify secret metadata (labels, annotations)
 - `ListSecrets` - List all secrets with pagination
 - `DeleteSecret` - Remove secrets
 
@@ -37,17 +38,14 @@ A standalone gRPC server that implements the Google Cloud Secret Manager API for
 - `ListSecretVersions` - List all versions with pagination and filtering
 - `EnableSecretVersion` - Enable a disabled version
 - `DisableSecretVersion` - Disable a version (prevents access)
+- `DestroySecretVersion` - Permanently destroy a version (irreversible)
 
 ## Unimplemented Operations
 
-The following operations return `Unimplemented` errors. See [API Reference](API-REFERENCE.md#unimplemented-methods) for workarounds.
-
 ### Not Yet Implemented
-- `UpdateSecret` - Modify secret metadata (labels, annotations)
-- `DestroySecretVersion` - Permanently destroy a version
 - IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
 
-**Rationale:** These operations are rarely needed for local testing and CI/CD workflows. The emulator focuses on core secret storage, retrieval, and version state management.
+**Rationale:** IAM methods are not needed for local testing since the emulator has no authentication. All requests succeed regardless of permissions.
 
 ## Quick Start
 

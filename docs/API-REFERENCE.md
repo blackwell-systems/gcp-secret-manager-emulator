@@ -547,31 +547,151 @@ print(version.state)  # ENABLED
 
 ---
 
-## Unimplemented Methods
-
-These methods return `Unimplemented` error:
-
 ### UpdateSecret
 
-Updates secret metadata (labels, annotations).
+Updates secret metadata (labels, annotations) without modifying versions.
 
-**Status:** Not implemented
+**Request:**
+```protobuf
+message UpdateSecretRequest {
+  Secret secret = 1;              // Required: Secret with updated field values
+  FieldMask update_mask = 2;      // Required: Specifies which fields to update
+}
+```
 
-**Workaround:** Delete and recreate secret
+**Response:** `Secret` message with updated fields
 
-**Use Case:** Changing labels without modifying versions
+**Example (Go):**
+```go
+// Update labels only
+secret, err := client.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+    Secret: &secretmanagerpb.Secret{
+        Name: "projects/test-project/secrets/my-api-key",
+        Labels: map[string]string{
+            "env":     "production",
+            "version": "2.0",
+        },
+    },
+    UpdateMask: &fieldmaskpb.FieldMask{
+        Paths: []string{"labels"},
+    },
+})
+
+fmt.Println(secret.Labels) // map[env:production version:2.0]
+```
+
+**Example (Python):**
+```python
+from google.protobuf import field_mask_pb2
+
+# Update annotations only
+request = secretmanager.UpdateSecretRequest(
+    secret={
+        "name": "projects/test-project/secrets/my-api-key",
+        "annotations": {
+            "owner": "security-team",
+            "rotation": "quarterly"
+        }
+    },
+    update_mask=field_mask_pb2.FieldMask(paths=["annotations"])
+)
+secret = client.update_secret(request=request)
+```
+
+**Supported Update Mask Paths:**
+- `labels` - Replace all labels
+- `annotations` - Replace all annotations
+
+**Behavior:**
+- Only fields in update_mask are modified
+- Update replaces entire map (not merged)
+- Versions are not affected
+- CreateTime and Name are immutable
+
+**Use Cases:**
+- Changing environment labels (dev → prod)
+- Adding owner information
+- Updating cost center tags
+- Modifying rotation policies
+
+**Errors:**
+- `InvalidArgument` - Missing secret.name or update_mask
+- `NotFound` - Secret doesn't exist
 
 ---
 
 ### DestroySecretVersion
 
-Permanently destroys a version (irreversible).
+Permanently destroys a secret version, making it irreversibly inaccessible.
 
-**Status:** Not implemented
+**Request:**
+```protobuf
+message DestroySecretVersionRequest {
+  string name = 1;  // Required: "projects/{project}/secrets/{secret}/versions/{version}"
+  string etag = 2;  // Optional: Not enforced in emulator
+}
+```
 
-**Workaround:** Delete entire secret or ignore old versions
+**Response:** `SecretVersion` message with state set to DESTROYED
 
-**Use Case:** Compliance requirements for data destruction
+**Example (Go):**
+```go
+// Destroy a version permanently
+version, err := client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+
+fmt.Println(version.State) // DESTROYED
+
+// Cannot access destroyed version
+_, err = client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+    Name: "projects/test-project/secrets/my-api-key/versions/1",
+})
+// Returns: FailedPrecondition error
+```
+
+**Example (Python):**
+```python
+# Destroy version
+request = secretmanager.DestroySecretVersionRequest(
+    name="projects/test-project/secrets/my-api-key/versions/1"
+)
+version = client.destroy_secret_version(request=request)
+
+print(version.state)  # DESTROYED
+```
+
+**Behavior:**
+- Sets version state to DESTROYED
+- Permanently removes the payload data
+- Operation is idempotent (destroying again succeeds)
+- AccessSecretVersion returns `FailedPrecondition`
+- Cannot be reversed (unlike Disable)
+- ListSecretVersions still returns destroyed versions
+- Latest alias skips destroyed versions
+
+**Destroy vs Disable:**
+
+| Feature | Disable | Destroy |
+|---------|---------|---------|
+| Reversible | Yes (EnableSecretVersion) | No |
+| Payload data | Retained | Permanently deleted |
+| Use case | Temporary deactivation | Compliance, permanent removal |
+| Recovery | Can re-enable | Cannot recover |
+
+**Use Cases:**
+- Compliance requirements (GDPR, data retention policies)
+- Permanent removal of leaked credentials
+- Cleanup after security incidents
+- Reducing storage costs by removing old data
+
+**Errors:**
+- `InvalidArgument` - Missing name or invalid format
+- `NotFound` - Secret or version doesn't exist
+
+---
+
+## Unimplemented Methods
 
 ---
 

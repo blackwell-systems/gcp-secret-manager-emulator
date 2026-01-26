@@ -175,6 +175,35 @@ func (s *Storage) ListSecrets(ctx context.Context, parent string, pageSize int32
 	return results, "", nil
 }
 
+// UpdateSecret updates mutable fields of a secret (labels, annotations).
+// Returns NotFound if secret doesn't exist.
+func (s *Storage) UpdateSecret(ctx context.Context, secretName string, labels, annotations map[string]string) (*secretmanagerpb.Secret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stored, exists := s.secrets[secretName]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Secret [%s] not found", secretName)
+	}
+
+	// Update mutable fields
+	if labels != nil {
+		stored.Labels = labels
+	}
+	if annotations != nil {
+		stored.Annotations = annotations
+	}
+
+	// Return updated secret
+	return &secretmanagerpb.Secret{
+		Name:        stored.Name,
+		CreateTime:  stored.CreateTime,
+		Labels:      stored.Labels,
+		Annotations: stored.Annotations,
+		Replication: stored.Replication,
+	}, nil
+}
+
 // DeleteSecret deletes a secret and all its versions.
 // Returns NotFound if secret doesn't exist.
 func (s *Storage) DeleteSecret(ctx context.Context, secretName string) error {
@@ -528,6 +557,54 @@ func (s *Storage) EnableSecretVersion(ctx context.Context, versionName string) (
 		Name:       versionName,
 		CreateTime: version.CreateTime,
 		State:      secretmanagerpb.SecretVersion_ENABLED,
+	}, nil
+}
+
+// DestroySecretVersion permanently destroys a version (irreversible).
+// Returns NotFound if secret or version doesn't exist.
+// Returns FailedPrecondition if version is already DESTROYED.
+func (s *Storage) DestroySecretVersion(ctx context.Context, versionName string) (*secretmanagerpb.SecretVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Parse resource name
+	parts := strings.Split(versionName, "/versions/")
+	if len(parts) != 2 {
+		return nil, status.Errorf(codes.InvalidArgument, "Invalid version name format: %s", versionName)
+	}
+
+	secretName := parts[0]
+	versionID := parts[1]
+
+	// Get secret
+	stored, exists := s.secrets[secretName]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Secret [%s] not found", secretName)
+	}
+
+	// Get version
+	version, exists := stored.Versions[versionID]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Version [%s] not found", versionName)
+	}
+
+	// Already destroyed - idempotent operation
+	if version.State == secretmanagerpb.SecretVersion_DESTROYED {
+		return &secretmanagerpb.SecretVersion{
+			Name:       versionName,
+			CreateTime: version.CreateTime,
+			State:      secretmanagerpb.SecretVersion_DESTROYED,
+		}, nil
+	}
+
+	// Set state to DESTROYED and clear payload
+	version.State = secretmanagerpb.SecretVersion_DESTROYED
+	version.Payload = nil // Permanently remove the payload data
+
+	return &secretmanagerpb.SecretVersion{
+		Name:       versionName,
+		CreateTime: version.CreateTime,
+		State:      secretmanagerpb.SecretVersion_DESTROYED,
 	}, nil
 }
 

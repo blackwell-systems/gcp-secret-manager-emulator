@@ -84,8 +84,8 @@ classDiagram
         +ListSecretVersions() ✓
         +EnableSecretVersion() ✓
         +DisableSecretVersion() ✓
-        +UpdateSecret() Unimplemented
-        +DestroySecretVersion() Unimplemented
+        +UpdateSecret() ✓
+        +DestroySecretVersion() ✓
     }
 
     class Storage {
@@ -267,26 +267,26 @@ stateDiagram-v2
 
 | Method | Status | Purpose | Usage in vaultmux |
 |--------|--------|---------|-------------------|
-| `CreateSecret` | ✅ Implemented | Create secret metadata | Yes - CreateItem |
-| `GetSecret` | ✅ Implemented | Get secret metadata | Yes - metadata retrieval |
-| `ListSecrets` | ✅ Implemented | List secrets with pagination | Yes - Init check |
-| `DeleteSecret` | ✅ Implemented | Delete secret and versions | Yes - DeleteItem |
-| `AddSecretVersion` | ✅ Implemented | Add version with payload | Yes - CreateItem |
-| `GetSecretVersion` | ✅ Implemented | Get version metadata | No |
-| `AccessSecretVersion` | ✅ Implemented | Get version payload | Yes - GetItem |
+| `CreateSecret` | + Implemented | Create secret metadata | Yes - CreateItem |
+| `GetSecret` | + Implemented | Get secret metadata | Yes - metadata retrieval |
+| `ListSecrets` | + Implemented | List secrets with pagination | Yes - Init check |
+| `DeleteSecret` | + Implemented | Delete secret and versions | Yes - DeleteItem |
+| `AddSecretVersion` | + Implemented | Add version with payload | Yes - CreateItem |
+| `GetSecretVersion` | + Implemented | Get version metadata | No |
+| `AccessSecretVersion` | + Implemented | Get version payload | Yes - GetItem |
+| `UpdateSecret` | + Implemented | Modify secret metadata | No |
+| `ListSecretVersions` | + Implemented | List versions with filtering | No |
+| `EnableSecretVersion` | + Implemented | Re-enable disabled version | No |
+| `DisableSecretVersion` | + Implemented | Disable version (soft-delete) | No |
+| `DestroySecretVersion` | + Implemented | Permanently destroy version | No |
 
 ### Unimplemented Methods
 
 | Method | Status | Reason |
 |--------|--------|--------|
-| `UpdateSecret` | ❌ Unimplemented | Rarely used; secrets are immutable |
-| `ListSecretVersions` | ✅ Implemented | Lists all versions with state filtering |
-| `EnableSecretVersion` | ✅ Implemented | Re-enables disabled versions |
-| `DisableSecretVersion` | ✅ Implemented | Disables versions (soft-delete pattern) |
-| `DestroySecretVersion` | ❌ Unimplemented | Advanced version lifecycle |
-| IAM methods | ❌ Unimplemented | No auth/authz in testing |
+| IAM methods | - Unimplemented | No auth/authz in testing |
 
-**Coverage:** 7 of 12 methods (58%) - but 100% of methods used by vaultmux and common use cases.
+**Coverage:** 11 of 12 methods (92%) - all core Secret Manager operations implemented.
 
 ## Resource Naming
 
@@ -439,10 +439,10 @@ graph TB
 - Matches emulator use case (ephemeral testing)
 
 **Trade-offs:**
-- ❌ Data lost on restart
-- ✅ No file I/O complexity
-- ✅ No cleanup needed
-- ✅ Fast test execution
+- - Data lost on restart
+- + No file I/O complexity
+- + No cleanup needed
+- + Fast test execution
 
 ### 2. Thread Safety via RWMutex
 
@@ -455,10 +455,10 @@ graph TB
 - Low contention in testing workloads
 
 **Trade-offs:**
-- ❌ Coarse-grained locking (entire map)
-- ✅ No deadlocks possible
-- ✅ Easy to reason about
-- ✅ Sufficient for testing loads
+- - Coarse-grained locking (entire map)
+- + No deadlocks possible
+- + Easy to reason about
+- + Sufficient for testing loads
 
 ### 3. Partial API Implementation
 
@@ -471,10 +471,10 @@ graph TB
 - Faster initial development
 
 **Trade-offs:**
-- ❌ Can't test version enable/disable workflows
-- ✅ Simpler codebase
-- ✅ Easier to maintain
-- ✅ Covers common path
+- - Can't test version enable/disable workflows
+- + Simpler codebase
+- + Easier to maintain
+- + Covers common path
 
 ### 4. No IAM Implementation
 
@@ -487,10 +487,10 @@ graph TB
 - IAM is orthogonal to secret storage
 
 **Trade-offs:**
-- ❌ Can't test permission-based workflows
-- ✅ Much simpler implementation
-- ✅ No authentication overhead
-- ✅ Suitable for testing
+- - Can't test permission-based workflows
+- + Much simpler implementation
+- + No authentication overhead
+- + Suitable for testing
 
 ## Performance Characteristics
 
@@ -513,12 +513,10 @@ graph TB
 
 Potential features if needed by the community:
 
-1. **UpdateSecret** - Label/annotation updates without version changes
-2. **UpdateSecret** - Useful for label management
-3. **Persistence** - Optional file-based storage for long-running instances
-4. **Metrics** - Prometheus-style metrics for monitoring
-5. **Multiple Projects** - Currently all secrets in one project
-6. **Version State Management** - Enable/Disable/Destroy operations
+1. **Persistence** - Optional file-based storage for long-running instances
+2. **Metrics** - Prometheus-style metrics for monitoring
+3. **Multiple Projects** - Currently all secrets in one project
+4. **IAM Methods** - SetIamPolicy, GetIamPolicy for access control testing
 
 ## References
 

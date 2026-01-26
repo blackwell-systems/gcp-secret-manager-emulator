@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 func TestServer_CreateSecret(t *testing.T) {
@@ -526,28 +527,240 @@ func TestServer_AccessSecretVersion(t *testing.T) {
 	}
 }
 
-func TestServer_UnimplementedMethods(t *testing.T) {
+func TestServer_UpdateSecret(t *testing.T) {
 	ctx := context.Background()
 	server := NewServer()
 
-	t.Run("UpdateSecret", func(t *testing.T) {
-		_, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{})
-		if err == nil {
-			t.Error("UpdateSecret() should return Unimplemented error")
-			return
+	// Create a secret first
+	parent := "projects/test-project"
+	secretID := "test-secret"
+	secret, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent:   parent,
+		SecretId: secretID,
+		Secret: &secretmanagerpb.Secret{
+			Labels: map[string]string{
+				"env": "dev",
+			},
+			Annotations: map[string]string{
+				"note": "original",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret() failed: %v", err)
+	}
+
+	secretName := secret.Name
+
+	t.Run("Success_UpdateLabels", func(t *testing.T) {
+		updated, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+			Secret: &secretmanagerpb.Secret{
+				Name: secretName,
+				Labels: map[string]string{
+					"env":     "prod",
+					"version": "1.0",
+				},
+			},
+			UpdateMask: &fieldmaskpb.FieldMask{
+				Paths: []string{"labels"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("UpdateSecret() failed: %v", err)
 		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Errorf("UpdateSecret() error is not a status error: %v", err)
-			return
+		if updated.Labels["env"] != "prod" {
+			t.Errorf("Labels not updated: got %v", updated.Labels)
 		}
-		if st.Code() != codes.Unimplemented {
-			t.Errorf("UpdateSecret() error code = %v, want Unimplemented", st.Code())
+		if updated.Labels["version"] != "1.0" {
+			t.Errorf("New label not added: got %v", updated.Labels)
+		}
+		// Annotations should remain unchanged
+		if updated.Annotations["note"] != "original" {
+			t.Errorf("Annotations changed unexpectedly: got %v", updated.Annotations)
 		}
 	})
 
-	t.Run("GetSecretVersion", func(t *testing.T) {
-		// GetSecretVersion is implemented but not used by vaultmux
+	t.Run("Success_UpdateAnnotations", func(t *testing.T) {
+		updated, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+			Secret: &secretmanagerpb.Secret{
+				Name: secretName,
+				Annotations: map[string]string{
+					"note": "updated",
+					"info": "new",
+				},
+			},
+			UpdateMask: &fieldmaskpb.FieldMask{
+				Paths: []string{"annotations"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("UpdateSecret() failed: %v", err)
+		}
+		if updated.Annotations["note"] != "updated" {
+			t.Errorf("Annotations not updated: got %v", updated.Annotations)
+		}
+		if updated.Annotations["info"] != "new" {
+			t.Errorf("New annotation not added: got %v", updated.Annotations)
+		}
+	})
+
+	t.Run("MissingSecretName", func(t *testing.T) {
+		_, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+			Secret: &secretmanagerpb.Secret{
+				Labels: map[string]string{"env": "test"},
+			},
+			UpdateMask: &fieldmaskpb.FieldMask{
+				Paths: []string{"labels"},
+			},
+		})
+		if err == nil {
+			t.Error("UpdateSecret() should return error for missing secret name")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.InvalidArgument {
+			t.Errorf("UpdateSecret() error = %v, want InvalidArgument", err)
+		}
+	})
+
+	t.Run("MissingUpdateMask", func(t *testing.T) {
+		_, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+			Secret: &secretmanagerpb.Secret{
+				Name:   secretName,
+				Labels: map[string]string{"env": "test"},
+			},
+		})
+		if err == nil {
+			t.Error("UpdateSecret() should return error for missing update_mask")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.InvalidArgument {
+			t.Errorf("UpdateSecret() error = %v, want InvalidArgument", err)
+		}
+	})
+
+	t.Run("SecretNotFound", func(t *testing.T) {
+		_, err := server.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+			Secret: &secretmanagerpb.Secret{
+				Name:   "projects/test-project/secrets/nonexistent",
+				Labels: map[string]string{"env": "test"},
+			},
+			UpdateMask: &fieldmaskpb.FieldMask{
+				Paths: []string{"labels"},
+			},
+		})
+		if err == nil {
+			t.Error("UpdateSecret() should return error for nonexistent secret")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			t.Errorf("UpdateSecret() error = %v, want NotFound", err)
+		}
+	})
+}
+
+func TestServer_DestroySecretVersion(t *testing.T) {
+	ctx := context.Background()
+	server := NewServer()
+
+	// Create secret and add version
+	parent := "projects/test-project"
+	secretID := "test-secret"
+	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent:   parent,
+		SecretId: secretID,
+		Secret:   &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret() failed: %v", err)
+	}
+
+	secretName := fmt.Sprintf("%s/secrets/%s", parent, secretID)
+	version, err := server.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent: secretName,
+		Payload: &secretmanagerpb.SecretPayload{
+			Data: []byte("test-data"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddSecretVersion() failed: %v", err)
+	}
+
+	versionName := version.Name
+
+	t.Run("Success", func(t *testing.T) {
+		destroyed, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{
+			Name: versionName,
+		})
+		if err != nil {
+			t.Fatalf("DestroySecretVersion() failed: %v", err)
+		}
+		if destroyed.State != secretmanagerpb.SecretVersion_DESTROYED {
+			t.Errorf("Version state = %v, want DESTROYED", destroyed.State)
+		}
+
+		// Verify payload is destroyed
+		_, err = server.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+			Name: versionName,
+		})
+		if err == nil {
+			t.Error("AccessSecretVersion() should fail for destroyed version")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.FailedPrecondition {
+			t.Errorf("AccessSecretVersion() error = %v, want FailedPrecondition", err)
+		}
+	})
+
+	t.Run("Idempotent", func(t *testing.T) {
+		// Destroying again should succeed (idempotent)
+		destroyed, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{
+			Name: versionName,
+		})
+		if err != nil {
+			t.Fatalf("DestroySecretVersion() second call failed: %v", err)
+		}
+		if destroyed.State != secretmanagerpb.SecretVersion_DESTROYED {
+			t.Errorf("Version state = %v, want DESTROYED", destroyed.State)
+		}
+	})
+
+	t.Run("MissingName", func(t *testing.T) {
+		_, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{})
+		if err == nil {
+			t.Error("DestroySecretVersion() should return error for missing name")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.InvalidArgument {
+			t.Errorf("DestroySecretVersion() error = %v, want InvalidArgument", err)
+		}
+	})
+
+	t.Run("VersionNotFound", func(t *testing.T) {
+		_, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{
+			Name: "projects/test-project/secrets/test-secret/versions/999",
+		})
+		if err == nil {
+			t.Error("DestroySecretVersion() should return error for nonexistent version")
+			return
+		}
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.NotFound {
+			t.Errorf("DestroySecretVersion() error = %v, want NotFound", err)
+		}
+	})
+}
+
+func TestServer_GetSecretVersion(t *testing.T) {
+	ctx := context.Background()
+	server := NewServer()
+
+	t.Run("NotFound", func(t *testing.T) {
+		// GetSecretVersion is implemented but not commonly used
 		// Test that it returns NotFound for non-existent versions
 		_, err := server.GetSecretVersion(ctx, &secretmanagerpb.GetSecretVersionRequest{
 			Name: "projects/test-project/secrets/nonexistent/versions/1",
@@ -563,22 +776,6 @@ func TestServer_UnimplementedMethods(t *testing.T) {
 		}
 		if st.Code() != codes.NotFound {
 			t.Errorf("GetSecretVersion() error code = %v, want NotFound", st.Code())
-		}
-	})
-
-	t.Run("DestroySecretVersion", func(t *testing.T) {
-		_, err := server.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{})
-		if err == nil {
-			t.Error("DestroySecretVersion() should return Unimplemented error")
-			return
-		}
-		st, ok := status.FromError(err)
-		if !ok {
-			t.Errorf("DestroySecretVersion() error is not a status error: %v", err)
-			return
-		}
-		if st.Code() != codes.Unimplemented {
-			t.Errorf("DestroySecretVersion() error code = %v, want Unimplemented", st.Code())
 		}
 	})
 }

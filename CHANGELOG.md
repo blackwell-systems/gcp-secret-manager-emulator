@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **UpdateSecret**: Modify secret metadata (labels, annotations) with field mask support
+- **DestroySecretVersion**: Permanently destroy a version (irreversible, clears payload)
+
+### Fixed
+- Pagination bug in ListSecretVersions causing duplicate results (map iteration was non-deterministic)
+
 ## [0.2.0] - 2026-01-25
 
 ### Added
