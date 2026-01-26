@@ -1,10 +1,25 @@
 # GCP Secret Manager Emulator
 
-> Lightweight gRPC emulator for the Google Cloud Secret Manager API
+![version](https://img.shields.io/github/v/release/blackwell-systems/gcp-secret-manager-emulator)
+
+> Test GCP Secret Manager locally without credentials
 
 ```bash
+# Option 1: Go install
 go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server@latest
 server
+
+# Option 2: Docker
+docker run -p 9090:9090 ghcr.io/blackwell-systems/gcp-secret-manager-emulator
+```
+
+**Quick Test Example:**
+```bash
+# Terminal 1 - Start emulator
+server
+
+# Terminal 2 - Run your tests
+go test ./...  # Works with any GCP Secret Manager tests
 ```
 
 - **Perfect for Testing** - No GCP credentials, works entirely offline
