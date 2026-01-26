@@ -1,10 +1,10 @@
 # GCP Secret Manager Emulator
 
 [![Blackwell Systems](https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg)](https://github.com/blackwell-systems)
-[![Version](https://img.shields.io/github/v/release/blackwell-systems/gcp-secret-manager-emulator)](https://github.com/blackwell-systems/gcp-secret-manager-emulator/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/blackwell-systems/gcp-secret-manager-emulator.svg)](https://pkg.go.dev/github.com/blackwell-systems/gcp-secret-manager-emulator)
 [![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://go.dev/)
 [![Test Status](https://github.com/blackwell-systems/gcp-secret-manager-emulator/workflows/CI/badge.svg)](https://github.com/blackwell-systems/gcp-secret-manager-emulator/actions)
+[![Version](https://img.shields.io/github/v/release/blackwell-systems/gcp-secret-manager-emulator)](https://github.com/blackwell-systems/gcp-secret-manager-emulator/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-yellow?logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/blackwellsystems)
 
