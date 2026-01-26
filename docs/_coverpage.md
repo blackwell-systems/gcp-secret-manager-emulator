@@ -8,7 +8,7 @@ server
 ```
 
 - **No GCP Credentials** - Works entirely offline without authentication
-- **Complete API** - 11 of 12 methods implemented (92% API coverage)
+- **Full gRPC API** - 11 of 12 methods implemented (92% API coverage)
 - **Fast & Lightweight** - In-memory storage, starts in milliseconds
 - **Thread-Safe** - Concurrent access with proper synchronization
 - **Docker Support** - Multi-arch images (amd64, arm64)
