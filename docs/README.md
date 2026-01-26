@@ -151,6 +151,7 @@ Flags:
 
 - **[API Reference](docs/API-REFERENCE.md)** - Complete API documentation with examples
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - System design, components, and diagrams
+- **[Roadmap](docs/ROADMAP.md)** - Planned features and future direction
 - **[Changelog](docs/CHANGELOG.md)** - Version history and release notes
 - **[Security Policy](SECURITY.md)** - Security guidelines and reporting
 - **[Brand Guidelines](BRAND.md)** - Trademark and logo usage

@@ -25,6 +25,7 @@
   - [Use Cases](/#use-cases)
   - [Differences from Real GCP](/#differences-from-real-gcp)
   - [Testing Guide](API-REFERENCE.md#testing-strategies)
+  - [Roadmap](ROADMAP.md)
   - [Changelog](CHANGELOG.md)
   - [Contributing](API-REFERENCE.md#contributing)
 
