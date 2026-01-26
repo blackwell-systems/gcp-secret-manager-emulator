@@ -411,7 +411,7 @@ graph TB
     B --> G
     C --> F
 
-    H[Coverage: 87%] --> A
+    H[Coverage: 90.8%] --> A
     H --> B
 
 
