@@ -149,12 +149,12 @@ Flags:
 
 📚 **[View Full Documentation](https://blackwell-systems.github.io/gcp-secret-manager-emulator/)**
 
-- **[API Reference](API-REFERENCE.md)** - Complete API documentation with examples
-- **[Architecture Guide](ARCHITECTURE.md)** - System design, components, and diagrams
-- **[Changelog](CHANGELOG.md)** - Version history and release notes
-- **[Security Policy](../SECURITY.md)** - Security guidelines and reporting
+- **[API Reference](docs/API-REFERENCE.md)** - Complete API documentation with examples
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - System design, components, and diagrams
+- **[Changelog](docs/CHANGELOG.md)** - Version history and release notes
+- **[Security Policy](SECURITY.md)** - Security guidelines and reporting
 - **[Brand Guidelines](BRAND.md)** - Trademark and logo usage
-- **[Maintainers](../MAINTAINERS.md)** - Project maintainers and contact info
+- **[Maintainers](MAINTAINERS.md)** - Project maintainers and contact info
 
 ## Testing
 
@@ -195,6 +195,10 @@ Extracted from [vaultmux](https://github.com/blackwell-systems/vaultmux) where i
 ## Disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by Google LLC or Google Cloud Platform. "Google Cloud", "Secret Manager", and related trademarks are property of Google LLC. This is an independent open-source implementation for testing and development purposes.
+
+## Trademarks
+
+**Blackwell Systems™** and the **Blackwell Systems logo** are trademarks of Dayna Blackwell. You may use the name "Blackwell Systems" to refer to this project, but you may not use the name or logo in a way that suggests endorsement or official affiliation without prior written permission. See [BRAND.md](BRAND.md) for usage guidelines.
 
 ## License
 
