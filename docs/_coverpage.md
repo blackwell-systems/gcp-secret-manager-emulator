@@ -2,7 +2,7 @@
 
 ![version](https://img.shields.io/github/v/release/blackwell-systems/gcp-secret-manager-emulator)
 
-> Test GCP Secret Manager locally without credentials
+> The reference local implementation of the Google Cloud Secret Manager API for development and CI
 
 ```bash
 # Option 1: Go install

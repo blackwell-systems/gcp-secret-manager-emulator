@@ -1,7 +1,7 @@
-// Package gcpemulator provides a lightweight gRPC emulator for Google Cloud Secret Manager API.
+// Package gcpemulator provides the reference local implementation of the Google Cloud Secret Manager API.
 //
-// This package enables local development and testing of applications that use Google Cloud
-// Secret Manager without requiring GCP credentials, network connectivity, or billing setup.
+// This package delivers production-grade, behaviorally-accurate Secret Manager semantics for
+// local development and CI/CD without requiring GCP credentials, network connectivity, or billing.
 //
 // # Features
 //

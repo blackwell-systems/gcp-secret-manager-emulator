@@ -8,9 +8,9 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-yellow?logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/blackwellsystems)
 
-> Lightweight gRPC emulator for Google Cloud Secret Manager API
+> The reference local implementation of the Google Cloud Secret Manager API for development and CI
 
-A standalone gRPC server that implements the Google Cloud Secret Manager API for local testing and CI/CD environments. No GCP credentials or internet connectivity required.
+A production-grade gRPC server that provides complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. No GCP credentials or network connectivity required.
 
 ## Features
 
