@@ -201,7 +201,7 @@ This project is not affiliated with, endorsed by, or sponsored by Google LLC or 
 
 Maintained by **Dayna Blackwell** — founder of Blackwell Systems, building reference infrastructure for cloud-native development.
 
-[GitHub](https://github.com/blackwell-systems) · [LinkedIn](https://linkedin.com/in/daynablackwell) · [Blog](https://blackwell-systems.github.io/blog/)
+[GitHub](https://github.com/blackwell-systems) · [LinkedIn](https://linkedin.com/in/daynablackwell) · [Blog](https://blog.blackwell-systems.com)
 
 ## Trademarks
 
