@@ -88,15 +88,15 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down servers...")
-	
+
 	// Shutdown REST gateway
 	if err := gatewayServer.Stop(ctx); err != nil {
 		log.Printf("Error stopping HTTP gateway: %v", err)
 	}
-	
+
 	// Shutdown gRPC server
 	grpcServer.GracefulStop()
-	
+
 	log.Println("Servers stopped")
 }
 
