@@ -197,6 +197,14 @@ Extracted from [vaultmux](https://github.com/blackwell-systems/vaultmux) where i
 
 This project is not affiliated with, endorsed by, or sponsored by Google LLC or Google Cloud Platform. "Google Cloud", "Secret Manager", and related trademarks are property of Google LLC. This is an independent open-source implementation for testing and development purposes.
 
+## Maintained By
+
+**Dayna Blackwell**  
+Founder, Blackwell Systems  
+Backend & Cloud Infrastructure Engineering
+
+[GitHub](https://github.com/blackwell-systems) · [LinkedIn](https://linkedin.com/in/daynablackwell) · [Blog](https://blackwell-systems.github.io/blog/)
+
 ## Trademarks
 
 **Blackwell Systems™** and the **Blackwell Systems logo** are trademarks of Dayna Blackwell. You may use the name "Blackwell Systems" to refer to this project, but you may not use the name or logo in a way that suggests endorsement or official affiliation without prior written permission. See [BRAND.md](BRAND.md) for usage guidelines.
