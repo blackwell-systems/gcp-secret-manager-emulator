@@ -63,13 +63,6 @@ curl http://localhost:8080/v1/projects/test-project/secrets
 - `DisableSecretVersion` - Disable a version (prevents access)
 - `DestroySecretVersion` - Permanently destroy a version (irreversible)
 
-## Unimplemented Operations
-
-### Not Yet Implemented
-- IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
-
-**Rationale:** IAM methods are not needed for local testing since the emulator has no authentication. All requests succeed regardless of permissions.
-
 ## Quick Start
 
 ### Choose Your Protocol
@@ -304,6 +297,16 @@ go test -cover ./...
 # With race detector
 go test -race ./...
 ```
+
+## API Coverage
+
+**Implemented (11 of 12 methods):**
+All Secret Manager operations except IAM methods.
+
+**Not Implemented:**
+- IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
+
+**Rationale:** IAM methods are not needed for local testing since the emulator has no authentication. All requests succeed regardless of permissions.
 
 ## Differences from Real GCP
 
