@@ -12,6 +12,27 @@
 
 A production-grade implementation providing complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. **Dual protocol support**: Native gRPC + REST/HTTP for maximum flexibility. No GCP credentials or network connectivity required.
 
+## Quick Start
+
+```bash
+# Install (dual protocol: gRPC + REST)
+go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server-dual@latest
+
+# Run
+server-dual
+# gRPC listening on :9090
+# REST API listening on :8080
+
+# Test with curl
+curl http://localhost:8080/v1/projects/test-project/secrets
+
+# Or use with official GCP SDK (point at localhost:9090)
+```
+
+**In production:** Used by enterprise teams for hermetic CI/CD testing
+
+---
+
 ## Features
 
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
