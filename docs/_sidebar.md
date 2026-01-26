@@ -25,10 +25,13 @@
   - [Use Cases](/#use-cases)
   - [Differences from Real GCP](/#differences-from-real-gcp)
   - [Testing Guide](API-REFERENCE.md#testing-strategies)
+  - [Changelog](CHANGELOG.md)
   - [Contributing](API-REFERENCE.md#contributing)
 
 - **Legal**
   - [Brand Guidelines](BRAND.md)
+  - [Security Policy](https://github.com/blackwell-systems/gcp-secret-manager-emulator/blob/main/SECURITY.md)
+  - [Maintainers](https://github.com/blackwell-systems/gcp-secret-manager-emulator/blob/main/MAINTAINERS.md)
   - [License](https://github.com/blackwell-systems/gcp-secret-manager-emulator/blob/main/LICENSE)
 
 - **Links**

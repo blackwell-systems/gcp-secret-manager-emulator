@@ -716,8 +716,8 @@ The emulator uses standard gRPC status codes:
 | `InvalidArgument` | Missing required field | Empty parent, name, or secret_id |
 | `NotFound` | Resource doesn't exist | Secret or version not found |
 | `AlreadyExists` | Duplicate resource | Creating secret with existing ID |
-| `FailedPrecondition` | Invalid state | Accessing disabled version |
-| `Unimplemented` | Feature not supported | UpdateSecret, IAM methods |
+| `FailedPrecondition` | Invalid state | Accessing disabled/destroyed version |
+| `Unimplemented` | Feature not supported | IAM methods only |
 
 ## Resource Naming Convention
 
@@ -931,14 +931,15 @@ for {
 
 ```
 ENABLED    - Version is active and accessible (default)
-DISABLED   - Version exists but cannot be accessed (not supported)
-DESTROYED  - Version permanently deleted (not supported)
+DISABLED   - Version exists but cannot be accessed
+DESTROYED  - Version permanently deleted (payload removed)
 ```
 
 **Emulator Behavior:**
 - All versions are created as `ENABLED`
-- State changes not supported (Enable/Disable/Destroy methods unimplemented)
-- Versions can only be removed by deleting the entire secret
+- Use DisableSecretVersion to disable (reversible with EnableSecretVersion)
+- Use DestroySecretVersion to permanently destroy (irreversible)
+- Accessing disabled/destroyed versions returns `FailedPrecondition`
 
 ### Latest Version Resolution
 
@@ -1018,7 +1019,7 @@ replication := &secretmanagerpb.Replication{
 | Encryption | KMS, customer keys | None (in-memory plaintext) |
 | Replication | Multi-region | None (single in-memory store) |
 | Persistence | Durable storage | None (data lost on restart) |
-| Version lifecycle | Enable/Disable/Destroy | All versions always ENABLED |
+| Version lifecycle | Enable/Disable/Destroy | Full support (ENABLED/DISABLED/DESTROYED) |
 | IAM methods | Full support | Not implemented |
 | Audit logging | Cloud Logging | None |
 | Quotas | API rate limits | None (unlimited) |
@@ -1184,15 +1185,9 @@ client.AccessSecretVersion(..., "versions/latest")
 
 ## Contributing
 
-To add support for unimplemented methods:
+Want to contribute? See [MAINTAINERS.md](../MAINTAINERS.md) for contact info.
 
-1. Add method to `internal/server/server.go`
-2. Add storage implementation to `internal/server/storage.go`
-3. Add tests to `internal/server/server_test.go`
-4. Update this API documentation
-5. Submit PR to: https://github.com/blackwell-systems/gcp-secret-manager-emulator
-
-Most needed: `ListSecretVersions`, `UpdateSecret`
+The emulator implements 11 of 12 Secret Manager methods (92% coverage). Only IAM methods remain unimplemented by design.
 
 ## References
 

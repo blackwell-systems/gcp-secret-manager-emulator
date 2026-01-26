@@ -20,7 +20,8 @@ A standalone gRPC server that implements the Google Cloud Secret Manager API for
 - **Docker Support** - Pre-built container for easy deployment
 - **Thread-Safe** - Concurrent access with proper synchronization
 - **Real SDK Compatible** - Works with official `cloud.google.com/go/secretmanager` client
-- **High Test Coverage** - 87% coverage with comprehensive integration tests
+- **High Test Coverage** - 90.8% coverage with comprehensive integration tests
+- **Complete API** - 11 of 12 methods implemented (92% API coverage)
 
 ## Supported Operations
 
@@ -148,8 +149,12 @@ Flags:
 
 📚 **[View Full Documentation](https://blackwell-systems.github.io/gcp-secret-manager-emulator/)**
 
-- **[API Reference](API-REFERENCE.md)** - Complete API documentation with examples
-- **[Architecture Guide](ARCHITECTURE.md)** - System design, components, and diagrams
+- **[API Reference](docs/API-REFERENCE.md)** - Complete API documentation with examples
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - System design, components, and diagrams
+- **[Changelog](docs/CHANGELOG.md)** - Version history and release notes
+- **[Security Policy](SECURITY.md)** - Security guidelines and reporting
+- **[Brand Guidelines](BRAND.md)** - Trademark and logo usage
+- **[Maintainers](MAINTAINERS.md)** - Project maintainers and contact info
 
 ## Testing
 
@@ -185,7 +190,7 @@ go test -race ./...
 
 ## Project Status
 
-Extracted from [vaultmux](https://github.com/blackwell-systems/vaultmux) where it powers GCP backend integration tests. Used in production CI pipelines.
+Extracted from [vaultmux](https://github.com/blackwell-systems/vaultmux) where it powers GCP backend integration tests.
 
 ## Disclaimer
 

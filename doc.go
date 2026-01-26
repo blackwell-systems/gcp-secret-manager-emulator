@@ -57,9 +57,14 @@
 //
 // # API Coverage
 //
-// Secrets: CreateSecret, GetSecret, ListSecrets, DeleteSecret
+// 11 of 12 methods implemented (92% coverage):
 //
-// Versions: AddSecretVersion, AccessSecretVersion, ListSecretVersions, DestroySecretVersion
+// Secrets: CreateSecret, GetSecret, UpdateSecret, ListSecrets, DeleteSecret
+//
+// Versions: AddSecretVersion, GetSecretVersion, AccessSecretVersion, ListSecretVersions,
+// EnableSecretVersion, DisableSecretVersion, DestroySecretVersion
+//
+// Not implemented: IAM methods (SetIamPolicy, GetIamPolicy, TestIamPermissions)
 //
 // # Architecture
 //

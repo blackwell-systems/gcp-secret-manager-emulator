@@ -10,6 +10,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 // Example demonstrates basic usage of the GCP Secret Manager emulator.
@@ -143,4 +144,108 @@ func Example_cicd() {
 	})
 
 	fmt.Println("CI/CD test completed successfully")
+}
+
+// Example_versionManagement demonstrates version lifecycle operations.
+func Example_versionManagement() {
+	ctx := context.Background()
+
+	conn, err := grpc.NewClient(
+		"localhost:9090",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	// Create secret
+	secret, _ := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent:   "projects/test-project",
+		SecretId: "api-key",
+		Secret: &secretmanagerpb.Secret{
+			Labels: map[string]string{"env": "dev"},
+			Replication: &secretmanagerpb.Replication{
+				Replication: &secretmanagerpb.Replication_Automatic_{
+					Automatic: &secretmanagerpb.Replication_Automatic{},
+				},
+			},
+		},
+	})
+
+	// Add multiple versions
+	v1, _ := client.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent:  secret.Name,
+		Payload: &secretmanagerpb.SecretPayload{Data: []byte("key-v1")},
+	})
+
+	v2, _ := client.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent:  secret.Name,
+		Payload: &secretmanagerpb.SecretPayload{Data: []byte("key-v2")},
+	})
+
+	fmt.Printf("Created versions: %s, %s\n", v1.Name, v2.Name)
+
+	// Disable old version
+	_, _ = client.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+		Name: v1.Name,
+	})
+
+	// Destroy old version permanently
+	_, _ = client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{
+		Name: v1.Name,
+	})
+
+	fmt.Println("Lifecycle operations completed")
+}
+
+// Example_updateMetadata demonstrates updating secret metadata.
+func Example_updateMetadata() {
+	ctx := context.Background()
+
+	conn, err := grpc.NewClient(
+		"localhost:9090",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	// Create secret with initial labels
+	secret, _ := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent:   "projects/test-project",
+		SecretId: "database-pwd",
+		Secret: &secretmanagerpb.Secret{
+			Labels: map[string]string{"env": "dev"},
+			Replication: &secretmanagerpb.Replication{
+				Replication: &secretmanagerpb.Replication_Automatic_{
+					Automatic: &secretmanagerpb.Replication_Automatic{},
+				},
+			},
+		},
+	})
+
+	// Update labels (e.g., promote to production)
+	updated, _ := client.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+		Secret: &secretmanagerpb.Secret{
+			Name:   secret.Name,
+			Labels: map[string]string{"env": "production"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{
+			Paths: []string{"labels"},
+		},
+	})
+
+	fmt.Printf("Updated labels: %v\n", updated.Labels)
 }
