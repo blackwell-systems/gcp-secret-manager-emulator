@@ -10,16 +10,17 @@
 
 > The reference local implementation of the Google Cloud Secret Manager API for development and CI
 
-A production-grade gRPC server that provides complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. No GCP credentials or network connectivity required.
+A production-grade implementation providing complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. **Dual protocol support**: Native gRPC + REST/HTTP for maximum flexibility. No GCP credentials or network connectivity required.
 
 ## Features
 
-- **Full gRPC API Implementation** - Complete Secret Manager v1 API
+- **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
+- **SDK Compatible** - Drop-in replacement for official `cloud.google.com/go/secretmanager` (gRPC)
+- **curl Friendly** - Full REST API with JSON, test from any language or terminal
 - **No GCP Credentials** - Works entirely offline without authentication
 - **Fast & Lightweight** - In-memory storage, starts in milliseconds
-- **Docker Support** - Pre-built container for easy deployment
+- **Docker Support** - Pre-built containers (gRPC-only, REST-only, or dual)
 - **Thread-Safe** - Concurrent access with proper synchronization
-- **Real SDK Compatible** - Works with official `cloud.google.com/go/secretmanager` client
 - **High Test Coverage** - 90.8% coverage with comprehensive integration tests
 - **Complete API** - 11 of 12 methods implemented (92% API coverage)
 
@@ -50,23 +51,56 @@ A production-grade gRPC server that provides complete, behaviorally-accurate Sec
 
 ## Quick Start
 
+### Choose Your Protocol
+
+**Three server variants available:**
+
+| Variant | Protocols | Use Case | Install Command |
+|---------|-----------|----------|-----------------|
+| `server` | gRPC only | SDK users, fastest startup | `go install .../cmd/server@latest` |
+| `server-rest` | REST/HTTP | curl, scripts, any language | `go install .../cmd/server-rest@latest` |
+| `server-dual` | Both gRPC + REST | Maximum flexibility | `go install .../cmd/server-dual@latest` |
+
 ### Install
 
 ```bash
+# gRPC only (recommended for SDK users)
 go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server@latest
+
+# REST API only
+go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server-rest@latest
+
+# Both protocols
+go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server-dual@latest
 ```
 
 ### Run Server
 
+**gRPC server:**
 ```bash
 # Start on default port 9090
 server
 
 # Custom port
 server --port 8080
+```
 
-# With debug logging
-server --log-level debug
+**REST server:**
+```bash
+# Start on default ports (gRPC: 9090, HTTP: 8080)
+server-rest
+
+# Custom ports
+server-rest --grpc-port 9090 --http-port 8080
+```
+
+**Dual protocol server:**
+```bash
+# Start both protocols (gRPC: 9090, HTTP: 8080)
+server-dual
+
+# Custom ports
+server-dual --grpc-port 9090 --http-port 8080
 ```
 
 ### Use with GCP SDK
@@ -101,21 +135,101 @@ func main() {
 }
 ```
 
+### Use with REST API
+
+**Start REST server:**
+```bash
+server-rest
+# HTTP gateway listening at :8080
+# Example: curl http://localhost:8080/v1/projects/test-project/secrets
+```
+
+**Create a secret:**
+```bash
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets?secretId=my-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"replication":{"automatic":{}}}'
+```
+
+**Add a secret version:**
+```bash
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/my-secret:addVersion" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"data":"'$(echo -n "my-secret-data" | base64)'"}}'
+```
+
+**Access secret data:**
+```bash
+curl "http://localhost:8080/v1/projects/my-project/secrets/my-secret/versions/1:access"
+```
+
+**List secrets:**
+```bash
+curl "http://localhost:8080/v1/projects/my-project/secrets"
+```
+
+**Disable a version:**
+```bash
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/my-secret/versions/1:disable"
+```
+
+**REST API matches GCP's official REST endpoints** - same paths, same JSON format, same behavior.
+
 ## Docker
 
+### Build Docker Images
+
 ```bash
-# Build
-docker build -t gcp-secret-manager-emulator .
+# Build all variants
+make docker
 
-# Run
-docker run -p 9090:9090 gcp-secret-manager-emulator
+# Or build individually
+docker build --build-arg VARIANT=grpc -t emulator:grpc .  # gRPC only (default)
+docker build --build-arg VARIANT=rest -t emulator:rest .  # REST only
+docker build --build-arg VARIANT=dual -t emulator:dual .  # Both protocols
+```
 
-# In CI/CD
+### Run Docker Containers
+
+**gRPC only:**
+```bash
+docker run -p 9090:9090 gcp-secret-manager-emulator:grpc
+```
+
+**REST only:**
+```bash
+docker run -p 8080:8080 gcp-secret-manager-emulator:rest
+# Access via: curl http://localhost:8080/v1/projects/test/secrets
+```
+
+**Dual protocol (both gRPC + REST):**
+```bash
+docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
+# gRPC on :9090, REST on :8080
+```
+
+### In CI/CD
+
+**GitHub Actions:**
+```yaml
 services:
   gcp-emulator:
-    image: gcp-secret-manager-emulator:latest
+    image: gcp-secret-manager-emulator:dual
     ports:
-      - "9090:9090"
+      - 9090:9090
+      - 8080:8080
+```
+
+**Docker Compose:**
+```yaml
+services:
+  gcp-emulator:
+    image: gcp-secret-manager-emulator:dual
+    ports:
+      - "9090:9090"  # gRPC
+      - "8080:8080"  # REST
+    environment:
+      - GCP_MOCK_LOG_LEVEL=debug
 ```
 
 ## Use Cases

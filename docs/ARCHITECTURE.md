@@ -4,52 +4,69 @@ This document describes the architecture and design decisions of the GCP Secret 
 
 ## Overview
 
-The GCP Secret Manager Emulator is a lightweight gRPC server that implements the Google Cloud Secret Manager v1 API for local development and testing. It provides a complete implementation of core secret management operations without requiring GCP credentials or network connectivity.
+The GCP Secret Manager Emulator implements the Google Cloud Secret Manager v1 API via **dual protocol support**: native gRPC and REST/HTTP. It provides a complete implementation of core secret management operations without requiring GCP credentials or network connectivity.
 
 **Design Principles:**
-- **Standard Compliance** - Implements official Secret Manager gRPC API
-- **Zero Dependencies** - No vaultmux dependencies; completely standalone
+- **Dual Protocol** - Both gRPC (SDK compatible) and REST/HTTP (curl friendly)
+- **Standard Compliance** - Implements official Secret Manager API (gRPC and REST)
+- **Zero Dependencies** - Completely standalone, no cloud dependencies
 - **Thread Safety** - All operations protected by RWMutex for concurrent access
 - **In-Memory Storage** - Fast execution with deterministic behavior
 - **Testing Focus** - Optimized for local development and CI/CD workflows
 
 ## System Architecture
 
+### Dual Protocol Architecture
+
+The emulator supports three deployment modes:
+
+**1. gRPC-only (`server`)** - Lightweight, SDK-compatible
+**2. REST-only (`server-rest`)** - HTTP gateway with internal gRPC backend
+**3. Dual-protocol (`server-dual`)** - Both protocols exposed simultaneously
+
 ```mermaid
 graph TB
     subgraph ClientApps["Client Applications"]
-        A["Go Application<br/>cloud.google.com/go/secretmanager"]
-        B["Python Application<br/>google-cloud-secret-manager"]
-        C["Integration Tests<br/>CI/CD Pipeline"]
+        A["Go SDK<br/>cloud.google.com/go/secretmanager"]
+        B["Python SDK<br/>google-cloud-secret-manager"]
+        C["curl / Scripts<br/>Any HTTP Client"]
+        D["CI/CD Tests"]
     end
 
-    subgraph EmulatorServer["Emulator Server"]
-        D["gRPC Server<br/>Port 9090"]
-        E["Server Implementation<br/>SecretManagerServiceServer"]
-        F["Storage Layer<br/>Thread-Safe In-Memory"]
+    subgraph EmulatorDual["Emulator (Dual Mode)"]
+        E["gRPC Server<br/>Port 9090"]
+        F["HTTP Gateway<br/>Port 8080"]
+        G["Server Implementation<br/>SecretManagerServiceServer"]
+        H["Storage Layer<br/>Thread-Safe In-Memory"]
     end
 
     subgraph DataStorage["Data Storage"]
-        G[("Secrets Map<br/>sync.RWMutex")]
-        H["Secret Metadata<br/>Name, Labels, CreateTime"]
-        I["Secret Versions<br/>Version ID, Payload, State"]
+        I[("Secrets Map<br/>sync.RWMutex")]
+        J["Secret Metadata<br/>Name, Labels, CreateTime"]
+        K["Secret Versions<br/>Version ID, Payload, State"]
     end
 
-    A -->|gRPC| D
-    B -->|gRPC| D
-    C -->|gRPC| D
-    D --> E
-    E --> F
-    F --> G
+    A -->|gRPC| E
+    B -->|gRPC| E
+    C -->|HTTP/JSON| F
+    D -->|gRPC or HTTP| E
+    D -->|HTTP/JSON| F
+    
+    F -->|gRPC Client| E
+    E --> G
     G --> H
-    G --> I
+    H --> I
+    I --> J
+    I --> K
 
     classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
+    classDef gatewayClass fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
     classDef storageClass fill:#1f2937,stroke:#6b7280,stroke-width:2px
-    class D serverClass
     class E serverClass
-    class F serverClass
-    class G storageClass
+    class G serverClass
+    class H serverClass
+    class F gatewayClass
+    class I storageClass
 ```
 
 ## Component Architecture
@@ -105,6 +122,35 @@ classDiagram
     classDef serverClass fill:#1a472a,stroke:#2ea043,stroke-width:2px
     class Server serverClass
     class Storage serverClass
+```
+
+### REST Gateway Layer
+
+The REST gateway (`internal/gateway`) provides HTTP/JSON access to the gRPC server.
+
+**Architecture:**
+- **HTTP Router:** Parses GCP REST API paths (`/v1/projects/{project}/secrets/...`)
+- **gRPC Client:** Internal gRPC client connects to the gRPC server
+- **JSON Marshaling:** Converts between JSON (HTTP) and Protobuf (gRPC)
+- **Path Mapping:** Maps REST URLs to gRPC method calls
+
+**Key Features:**
+- Matches GCP's official REST endpoint format
+- Base64 encoding for secret payloads
+- Proper HTTP status codes (200, 201, 404, etc.)
+- `/health` endpoint for readiness checks
+
+**Implementation:**
+```go
+// Gateway creates internal gRPC connection
+gateway := gateway.NewServer("localhost:9090")
+
+// Routes HTTP requests to gRPC methods
+POST   /v1/projects/{p}/secrets/{s}:addVersion
+  → grpcClient.AddSecretVersion(...)
+
+GET    /v1/projects/{p}/secrets/{s}/versions/{v}:access
+  → grpcClient.AccessSecretVersion(...)
 ```
 
 ### Storage Layer

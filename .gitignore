@@ -1,6 +1,9 @@
 # Binaries
 server
+server-rest
+server-dual
 gcp-secret-manager-emulator
+bin/
 *.exe
 *.dll
 *.so
@@ -27,3 +30,6 @@ go.work
 # OS
 .DS_Store
 Thumbs.db
+
+# Third-party proto files (downloaded at build time)
+third_party/

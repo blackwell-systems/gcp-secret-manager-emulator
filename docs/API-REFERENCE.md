@@ -4,15 +4,26 @@ Complete reference for the GCP Secret Manager Emulator API.
 
 ## Overview
 
-The emulator implements the Google Cloud Secret Manager v1 gRPC API. All methods match the official API signature and behavior for common operations.
+The emulator implements the Google Cloud Secret Manager v1 API via **both gRPC and REST/HTTP protocols**. All methods match the official API signature and behavior for common operations.
 
 **Base Service:** `google.cloud.secretmanager.v1.SecretManagerService`
 
-**gRPC Endpoint:** `localhost:9090` (default)
+**Endpoints:**
+- **gRPC:** `localhost:9090` (default)
+- **REST/HTTP:** `http://localhost:8080` (when using `server-rest` or `server-dual`)
+
+## Protocol Selection
+
+Choose the protocol that fits your workflow:
+
+| Protocol | Server | Use Case | Example |
+|----------|--------|----------|---------|
+| **gRPC** | `server`, `server-dual` | SDK integration, production parity | Official GCP SDKs |
+| **REST/HTTP** | `server-rest`, `server-dual` | curl, scripts, any HTTP client | CI scripts, debugging |
 
 ## Connection
 
-### Go Client
+### gRPC (Go Client)
 
 ```go
 import (
@@ -33,7 +44,7 @@ client, err := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
 defer client.Close()
 ```
 
-### Python Client
+### gRPC (Python Client)
 
 ```python
 from google.cloud import secretmanager
@@ -45,6 +56,16 @@ client = secretmanager.SecretManagerServiceClient(
         channel=channel
     )
 )
+```
+
+### REST/HTTP (curl)
+
+```bash
+# Base URL for all REST requests
+BASE_URL="http://localhost:8080/v1"
+
+# All endpoints follow GCP's REST API format
+curl "${BASE_URL}/projects/my-project/secrets"
 ```
 
 ## Methods
@@ -73,7 +94,7 @@ message Secret {
 }
 ```
 
-**Example (Go):**
+**Example (gRPC - Go):**
 ```go
 secret, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
     Parent:   "projects/test-project",
@@ -89,6 +110,16 @@ secret, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
         },
     },
 })
+```
+
+**Example (REST - curl):**
+```bash
+curl -X POST "http://localhost:8080/v1/projects/test-project/secrets?secretId=my-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "labels": {"env": "dev"},
+    "replication": {"automatic": {}}
+  }'
 ```
 
 **Errors:**
@@ -1180,6 +1211,48 @@ client.AccessSecretVersion(..., "versions/latest")
 1. Adjust your code to not use that method
 2. Contribute implementation to the emulator
 3. Use real GCP for advanced features
+
+---
+
+## REST API Quick Reference
+
+All REST endpoints follow GCP's official format: `http://localhost:8080/v1/...`
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| **List Secrets** | GET | `/projects/{project}/secrets` |
+| **Create Secret** | POST | `/projects/{project}/secrets?secretId={id}` |
+| **Get Secret** | GET | `/projects/{project}/secrets/{secret}` |
+| **Update Secret** | PATCH | `/projects/{project}/secrets/{secret}` |
+| **Delete Secret** | DELETE | `/projects/{project}/secrets/{secret}` |
+| **Add Version** | POST | `/projects/{project}/secrets/{secret}:addVersion` |
+| **List Versions** | GET | `/projects/{project}/secrets/{secret}/versions` |
+| **Get Version** | GET | `/projects/{project}/secrets/{secret}/versions/{version}` |
+| **Access Version** | GET | `/projects/{project}/secrets/{secret}/versions/{version}:access` |
+| **Enable Version** | POST | `/projects/{project}/secrets/{secret}/versions/{version}:enable` |
+| **Disable Version** | POST | `/projects/{project}/secrets/{secret}/versions/{version}:disable` |
+| **Destroy Version** | POST | `/projects/{project}/secrets/{secret}/versions/{version}:destroy` |
+
+**Content-Type:** All requests use `application/json`
+
+**Payload Encoding:** Secret data must be base64-encoded in the `payload.data` field
+
+**Example workflow:**
+```bash
+# 1. Create secret
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets?secretId=api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"replication":{"automatic":{}}}'
+
+# 2. Add version with data
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/api-key:addVersion" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"data":"'$(echo -n "secret-value" | base64)'"}}'
+
+# 3. Access secret data
+curl "http://localhost:8080/v1/projects/my-project/secrets/api-key/versions/1:access" | \
+  jq -r '.payload.data' | base64 -d
+```
 
 ---
 

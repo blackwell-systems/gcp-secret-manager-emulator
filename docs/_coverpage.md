@@ -4,31 +4,38 @@
 
 > The reference local implementation of the Google Cloud Secret Manager API for development and CI
 
-```bash
-# Option 1: Go install
-go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server@latest
-server
+**Dual Protocol Support**: Native gRPC + REST/HTTP
 
-# Option 2: Docker
-docker run -p 9090:9090 ghcr.io/blackwell-systems/gcp-secret-manager-emulator
+```bash
+# gRPC only (fastest)
+go install .../cmd/server@latest && server
+
+# REST API (curl-friendly)
+go install .../cmd/server-rest@latest && server-rest
+
+# Both protocols
+go install .../cmd/server-dual@latest && server-dual
+
+# Docker
+docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
 ```
 
-**Quick Test Example:**
+**Quick Test Examples:**
 ```bash
-# Terminal 1 - Start emulator
-server
+# gRPC with SDK
+go test ./...  # Works with cloud.google.com/go/secretmanager
 
-# Terminal 2 - Run your tests
-go test ./...  # Works with any GCP Secret Manager tests
+# REST with curl
+curl http://localhost:8080/v1/projects/test/secrets
 ```
 
+- **Dual Protocol** - Both gRPC and REST/HTTP APIs
 - **Perfect for Testing** - No GCP credentials, works entirely offline
 - **CI/CD Ready** - Docker support, starts in milliseconds
-- **Mock GCP Locally** - Full gRPC API with 92% method coverage
-- **Real SDK Compatible** - Drop-in replacement for `cloud.google.com/go/secretmanager`
+- **Real SDK Compatible** - Drop-in replacement for official SDK
+- **REST Compatible** - Matches GCP's REST endpoint format
 - **Integration Testing** - Deterministic behavior, thread-safe operations
-- **Multi-Platform** - Docker images for amd64 and arm64
-- **Production Tested** - 90.8% test coverage, used in real CI pipelines
+- **Production Tested** - 90.8% test coverage, 92% API coverage
 
 [Get Started](#quick-start)
 [VIEW ON GITHUB](https://github.com/blackwell-systems/gcp-secret-manager-emulator)

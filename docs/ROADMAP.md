@@ -2,7 +2,38 @@
 
 This document outlines the planned features and improvements for the GCP Secret Manager Emulator.
 
-## v1.0.0 - Current Release ✓
+## v1.1.0 - Current Release ✓
+
+**Dual Protocol Support**
+- ✅ REST/HTTP API alongside gRPC (complete feature parity)
+- ✅ Three server variants: gRPC-only, REST-only, Dual-protocol
+- ✅ Custom HTTP gateway with GCP-compatible endpoints
+- ✅ All 11 methods accessible via REST
+- ✅ JSON request/response with protobuf marshaling
+- ✅ Health check endpoint (`/health`)
+- ✅ Docker multi-variant builds
+- ✅ Complete REST documentation and examples
+- ✅ Makefile targets for all variants
+
+**Why this matters:**
+- Use official GCP SDK (gRPC) OR curl/scripts (REST)
+- Deploy only what you need (16MB gRPC vs 18MB REST/Dual)
+- Maximum flexibility: choose protocol per use case
+- Complete coverage: only emulator with both protocols
+
+**Docker usage:**
+```bash
+# gRPC only
+docker run -p 9090:9090 gcp-secret-manager-emulator:grpc
+
+# REST only
+docker run -p 8080:8080 gcp-secret-manager-emulator:rest
+
+# Both protocols
+docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
+```
+
+## v1.0.0 - Released 2026-01-26 ✓
 
 **Complete API Implementation**
 - 11 of 12 Secret Manager methods (92% API coverage)
@@ -11,28 +42,6 @@ This document outlines the planned features and improvements for the GCP Secret 
 - 90.8% test coverage
 - Complete documentation
 - Docker support with multi-arch images
-
-## v1.1.0 - Planned
-
-**REST API Support**
-- Add REST/HTTP endpoints alongside existing gRPC API
-- Auto-generated using [grpc-gateway](https://github.com/grpc-ecosystem/grpc-gateway)
-- Full feature parity with gRPC interface
-- Swagger/OpenAPI documentation
-- `curl` examples in documentation
-- HTTP server on configurable port (default: 8080)
-
-**Benefits:**
-- Test with `curl` without gRPC clients
-- Broader language support (any HTTP client)
-- Lower barrier to entry for new users
-- Complete feature coverage vs competitors
-
-**Docker example:**
-```bash
-docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator
-# gRPC on :9090, REST on :8080
-```
 
 ## Future Considerations
 

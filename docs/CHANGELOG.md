@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-26
+
+### Added
+- **REST/HTTP API Support**: Full REST API implementation alongside existing gRPC
+  - Three server variants: `server` (gRPC), `server-rest` (REST), `server-dual` (both)
+  - HTTP gateway at `internal/gateway` with GCP-compatible endpoints
+  - All 11 methods accessible via REST: `POST /v1/projects/{p}/secrets`, `GET /v1/.../versions/{v}:access`, etc.
+  - JSON request/response format with protobuf marshaling
+  - Base64 encoding for secret payloads
+  - Health check endpoint at `/health`
+- **Docker Multi-Variant Builds**: Build-time selection via `VARIANT` argument
+  - `docker build --build-arg VARIANT=grpc` - gRPC only (default)
+  - `docker build --build-arg VARIANT=rest` - REST only
+  - `docker build --build-arg VARIANT=dual` - Both protocols
+- **Makefile Targets**: `make build-rest`, `make build-dual`, `make docker-grpc`, `make docker-rest`, `make docker-dual`
+- **Documentation**: 
+  - REST API examples in README and API-REFERENCE
+  - REST endpoint quick reference table
+  - Dual protocol architecture diagrams
+  - Docker usage for all variants
+
+### Changed
+- Binary sizes: gRPC-only 16MB (unchanged), REST/Dual 18MB (+2MB for gateway)
+- Port exposure: Dual mode exposes both 9090 (gRPC) and 8080 (HTTP)
+- Documentation updated across README, API-REFERENCE, ARCHITECTURE, coverpage
+
+### Technical Details
+- REST gateway uses internal gRPC client (no code generation required)
+- Custom HTTP router parsing GCP REST paths
+- Thread-safe operation (shared storage layer)
+- Zero protocol-specific bloat in gRPC-only builds
+
 ## [1.0.0] - 2026-01-26
 
 ### Added
