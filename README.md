@@ -33,6 +33,25 @@ curl http://localhost:8080/v1/projects/test-project/secrets
 
 ---
 
+## Usage Modes
+
+**Standalone** - Run independently for Secret Manager-only testing:
+```bash
+server-dual
+# Single service, no IAM enforcement
+```
+
+**Orchestrated Ecosystem** - Use with [GCP Emulator Control Plane](https://github.com/blackwell-systems/gcp-emulator-control-plane) for multi-service testing with unified IAM:
+```bash
+gcp-emulator start
+# Secret Manager + KMS + IAM emulator
+# Single policy file, cross-service authorization
+```
+
+**Choose standalone for simple workflows, orchestrated for production-like testing.**
+
+---
+
 ## Features
 
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
