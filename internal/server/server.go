@@ -118,13 +118,13 @@ func (s *Server) CreateSecret(ctx context.Context, req *secretmanagerpb.CreateSe
 	}
 	if req.GetSecretId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "secret_id is required")
-
-	if err := s.checkPermission(ctx, "CreateSecret", authz.NormalizeParentForCreate(req.GetParent())); err != nil {
-		return nil, err
-	}
 	}
 	if req.GetSecret() == nil {
 		return nil, status.Error(codes.InvalidArgument, "secret is required")
+	}
+
+	if err := s.checkPermission(ctx, "CreateSecret", authz.NormalizeParentForCreate(req.GetParent())); err != nil {
+		return nil, err
 	}
 
 	return s.storage.CreateSecret(ctx, req.GetParent(), req.GetSecretId(), req.GetSecret())
@@ -135,10 +135,10 @@ func (s *Server) CreateSecret(ctx context.Context, req *secretmanagerpb.CreateSe
 func (s *Server) GetSecret(ctx context.Context, req *secretmanagerpb.GetSecretRequest) (*secretmanagerpb.Secret, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "GetSecret", authz.NormalizeSecretResource(req.GetName())); err != nil {
 		return nil, err
-	}
 	}
 
 	return s.storage.GetSecret(ctx, req.GetName())
@@ -149,10 +149,10 @@ func (s *Server) GetSecret(ctx context.Context, req *secretmanagerpb.GetSecretRe
 func (s *Server) UpdateSecret(ctx context.Context, req *secretmanagerpb.UpdateSecretRequest) (*secretmanagerpb.Secret, error) {
 	if req.GetSecret() == nil || req.GetSecret().GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "secret.name is required")
+	}
 
 	if err := s.checkPermission(ctx, "UpdateSecret", authz.NormalizeSecretResource(req.GetSecret().GetName())); err != nil {
 		return nil, err
-	}
 	}
 
 	if req.GetUpdateMask() == nil {
@@ -184,10 +184,10 @@ func (s *Server) UpdateSecret(ctx context.Context, req *secretmanagerpb.UpdateSe
 func (s *Server) DeleteSecret(ctx context.Context, req *secretmanagerpb.DeleteSecretRequest) (*emptypb.Empty, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "DeleteSecret", authz.NormalizeSecretResource(req.GetName())); err != nil {
 		return nil, err
-	}
 	}
 
 	err := s.storage.DeleteSecret(ctx, req.GetName())
@@ -203,13 +203,13 @@ func (s *Server) DeleteSecret(ctx context.Context, req *secretmanagerpb.DeleteSe
 func (s *Server) AddSecretVersion(ctx context.Context, req *secretmanagerpb.AddSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
 	if req.GetParent() == "" {
 		return nil, status.Error(codes.InvalidArgument, "parent is required")
-
-	if err := s.checkPermission(ctx, "AddSecretVersion", authz.NormalizeSecretResource(req.GetParent())); err != nil {
-		return nil, err
-	}
 	}
 	if req.GetPayload() == nil {
 		return nil, status.Error(codes.InvalidArgument, "payload is required")
+	}
+
+	if err := s.checkPermission(ctx, "AddSecretVersion", authz.NormalizeSecretResource(req.GetParent())); err != nil {
+		return nil, err
 	}
 
 	return s.storage.AddSecretVersion(ctx, req.GetParent(), req.GetPayload())
@@ -220,14 +220,10 @@ func (s *Server) AddSecretVersion(ctx context.Context, req *secretmanagerpb.AddS
 func (s *Server) GetSecretVersion(ctx context.Context, req *secretmanagerpb.GetSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "GetSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
-	}
-
-	if err := s.checkPermission(ctx, "GetSecret", authz.NormalizeSecretResource(req.GetName())); err != nil {
-		return nil, err
-	}
 	}
 
 	return s.storage.GetSecretVersion(ctx, req.GetName())
@@ -239,10 +235,10 @@ func (s *Server) GetSecretVersion(ctx context.Context, req *secretmanagerpb.GetS
 func (s *Server) AccessSecretVersion(ctx context.Context, req *secretmanagerpb.AccessSecretVersionRequest) (*secretmanagerpb.AccessSecretVersionResponse, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "AccessSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
-	}
 	}
 
 	return s.storage.AccessSecretVersion(ctx, req.GetName())
@@ -255,10 +251,10 @@ func (s *Server) AccessSecretVersion(ctx context.Context, req *secretmanagerpb.A
 func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest) (*secretmanagerpb.ListSecretVersionsResponse, error) {
 	if req.GetParent() == "" {
 		return nil, status.Error(codes.InvalidArgument, "parent is required")
+	}
 
 	if err := s.checkPermission(ctx, "ListSecretVersions", authz.NormalizeSecretResource(req.GetParent())); err != nil {
 		return nil, err
-	}
 	}
 
 	versions, token, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
@@ -277,14 +273,10 @@ func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.Li
 func (s *Server) EnableSecretVersion(ctx context.Context, req *secretmanagerpb.EnableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "EnableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
-	}
-
-	if err := s.checkPermission(ctx, "AccessSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
-		return nil, err
-	}
 	}
 
 	return s.storage.EnableSecretVersion(ctx, req.GetName())
@@ -296,14 +288,10 @@ func (s *Server) EnableSecretVersion(ctx context.Context, req *secretmanagerpb.E
 func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.DisableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "DisableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
-	}
-
-	if err := s.checkPermission(ctx, "AccessSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
-		return nil, err
-	}
 	}
 
 	return s.storage.DisableSecretVersion(ctx, req.GetName())
@@ -314,14 +302,10 @@ func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.
 func (s *Server) DestroySecretVersion(ctx context.Context, req *secretmanagerpb.DestroySecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
 
 	if err := s.checkPermission(ctx, "DestroySecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
-	}
-
-	if err := s.checkPermission(ctx, "AccessSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
-		return nil, err
-	}
 	}
 
 	// Note: etag is optional and not enforced in this implementation

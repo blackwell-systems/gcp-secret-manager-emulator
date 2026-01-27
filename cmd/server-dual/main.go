@@ -56,7 +56,10 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	mockServer := server.NewServer()
+	mockServer, err := server.NewServer()
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
+	}
 	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, mockServer)
 	reflection.Register(grpcServer)
 
