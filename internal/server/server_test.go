@@ -13,7 +13,10 @@ import (
 
 func TestServer_CreateSecret(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tests := []struct {
 		name    string
@@ -95,10 +98,13 @@ func TestServer_CreateSecret(t *testing.T) {
 
 func TestServer_GetSecret(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create a test secret first
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   "projects/test-project",
 		SecretId: "test-secret",
 		Secret: &secretmanagerpb.Secret{
@@ -174,7 +180,10 @@ func TestServer_GetSecret(t *testing.T) {
 
 func TestServer_ListSecrets(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Clear any existing data
 	server.Storage().Clear()
@@ -266,10 +275,13 @@ func TestServer_ListSecrets(t *testing.T) {
 
 func TestServer_DeleteSecret(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create a test secret first
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   "projects/test-project",
 		SecretId: "test-secret-delete",
 		Secret: &secretmanagerpb.Secret{
@@ -341,10 +353,13 @@ func TestServer_DeleteSecret(t *testing.T) {
 
 func TestServer_AddSecretVersion(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create a test secret first
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   "projects/test-project",
 		SecretId: "test-secret-version",
 		Secret: &secretmanagerpb.Secret{
@@ -429,10 +444,13 @@ func TestServer_AddSecretVersion(t *testing.T) {
 
 func TestServer_AccessSecretVersion(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create a test secret with version
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   "projects/test-project",
 		SecretId: "test-secret-access",
 		Secret: &secretmanagerpb.Secret{
@@ -529,7 +547,10 @@ func TestServer_AccessSecretVersion(t *testing.T) {
 
 func TestServer_UpdateSecret(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create a secret first
 	parent := "projects/test-project"
@@ -663,12 +684,15 @@ func TestServer_UpdateSecret(t *testing.T) {
 
 func TestServer_DestroySecretVersion(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create secret and add version
 	parent := "projects/test-project"
 	secretID := "test-secret"
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   parent,
 		SecretId: secretID,
 		Secret:   &secretmanagerpb.Secret{},
@@ -757,7 +781,10 @@ func TestServer_DestroySecretVersion(t *testing.T) {
 
 func TestServer_GetSecretVersion(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	t.Run("NotFound", func(t *testing.T) {
 		// GetSecretVersion is implemented but not commonly used
@@ -781,7 +808,10 @@ func TestServer_GetSecretVersion(t *testing.T) {
 }
 
 func TestServer_Storage(t *testing.T) {
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	storage := server.Storage()
 
 	if storage == nil {
@@ -791,12 +821,15 @@ func TestServer_Storage(t *testing.T) {
 
 func TestServer_ListSecretVersions(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create secret and add versions
 	parent := "projects/test-project"
 	secretID := "test-secret"
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   parent,
 		SecretId: secretID,
 		Secret:   &secretmanagerpb.Secret{},
@@ -1051,12 +1084,15 @@ func TestServer_ListSecretVersions(t *testing.T) {
 
 func TestServer_DisableEnableSecretVersion(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create secret and add version
 	parent := "projects/test-project"
 	secretID := "test-secret"
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   parent,
 		SecretId: secretID,
 		Secret:   &secretmanagerpb.Secret{},
@@ -1166,12 +1202,15 @@ func TestServer_DisableEnableSecretVersion(t *testing.T) {
 
 func TestServer_VersionStateManagement(t *testing.T) {
 	ctx := context.Background()
-	server := NewServer()
+	server, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Create secret and add multiple versions
 	parent := "projects/test-project"
 	secretID := "test-secret"
-	_, err := server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+	_, err = server.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent:   parent,
 		SecretId: secretID,
 		Secret:   &secretmanagerpb.Secret{},

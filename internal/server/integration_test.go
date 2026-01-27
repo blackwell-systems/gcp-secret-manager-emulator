@@ -286,7 +286,10 @@ func startTestServer(t *testing.T) (*grpc.Server, string) {
 	grpcServer := grpc.NewServer()
 
 	// Register mock service
-	mockServer := NewServer()
+	mockServer, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, mockServer)
 
 	// Start serving in background
