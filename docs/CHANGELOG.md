@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-01-27
+
+### Added
+- **IAM Integration**: Optional permission checks with GCP IAM Emulator
+  - Three authorization modes: `off` (legacy), `permissive` (fail-open), `strict` (fail-closed)
+  - Environment variables: `IAM_MODE` and `IAM_HOST`
+  - Principal injection via `x-emulator-principal` (gRPC) and `X-Emulator-Principal` (HTTP)
+  - Complete permission mapping for all 12 Secret Manager operations
+  - Integration with `gcp-emulator-auth` shared library
+  - Resource normalization for secrets, versions, and parent projects
+  - Integration tests covering all three modes
+- **Docker Compose**: Multi-mode orchestration examples
+  - Default service with `IAM_MODE=permissive`
+  - Strict mode service for CI workflows
+  - Legacy mode service (IAM disabled)
+  - Health checks and service dependencies
+- **Documentation**: IAM Integration section in README
+  - Configuration guide
+  - Usage examples for all three modes
+  - Permission mapping table
+  - Mode comparison table
+
+### Changed
+- `NewServer()` now returns `(*Server, error)` to handle IAM client initialization errors
+- Server struct includes `iamClient` and `iamMode` fields
+- All operations check permissions before storage calls (when IAM enabled)
+- Backward compatible: IAM disabled by default (`IAM_MODE=off`)
+
+### Technical Details
+- Uses `gcp-emulator-auth v0.0.0-20260126234751-6976d522b21f`
+- Permission checks placed after validation, before storage operations
+- Non-breaking change: existing deployments unaffected
+- Fail-open vs fail-closed behavior configurable per environment
+
 ## [1.1.0] - 2026-01-26
 
 ### Added
@@ -105,7 +139,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runs as non-root user in Docker
 - No authentication by design (testing-only emulator)
 
-[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/releases/tag/v0.1.0
