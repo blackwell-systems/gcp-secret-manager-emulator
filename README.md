@@ -38,6 +38,7 @@ curl http://localhost:8080/v1/projects/test-project/secrets
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
 - **SDK Compatible** - Drop-in replacement for official `cloud.google.com/go/secretmanager` (gRPC)
 - **curl Friendly** - Full REST API with JSON, test from any language or terminal
+- **IAM Integration** - Optional permission checks with GCP IAM Emulator
 - **No GCP Credentials** - Works entirely offline without authentication
 - **Fast & Lightweight** - In-memory storage, starts in milliseconds
 - **Docker Support** - Pre-built containers (gRPC-only, REST-only, or dual)
@@ -254,6 +255,85 @@ services:
 - **Demos & Prototyping** - Showcase GCP integrations offline
 - **Cost Reduction** - Avoid GCP API charges during development
 
+## IAM Integration
+
+The Secret Manager emulator supports optional permission checks using the [GCP IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator).
+
+### Configuration
+
+**Environment Variables:**
+
+- `IAM_MODE` - Controls permission enforcement (default: `off`)
+  - `off` - No permission checks (legacy behavior)
+  - `permissive` - Check permissions, fail-open on connectivity errors
+  - `strict` - Check permissions, fail-closed on connectivity errors (for CI)
+- `IAM_HOST` - IAM emulator address (default: `localhost:8080`)
+
+### Usage
+
+**Without IAM (default):**
+```bash
+server-dual
+```
+
+**With IAM (permissive mode):**
+```bash
+IAM_MODE=permissive IAM_HOST=localhost:8080 server-dual
+```
+
+**With IAM (strict mode for CI):**
+```bash
+IAM_MODE=strict IAM_HOST=localhost:8080 server-dual
+```
+
+### Principal Injection
+
+Specify the calling principal for permission checks:
+
+**gRPC:**
+```go
+ctx := metadata.AppendToOutgoingContext(ctx, "x-emulator-principal", "user:admin@example.com")
+resp, err := client.CreateSecret(ctx, req)
+```
+
+**REST:**
+```bash
+curl -H "X-Emulator-Principal: user:admin@example.com" \
+  -X POST "http://localhost:8080/v1/projects/my-project/secrets" \
+  -H "Content-Type: application/json" \
+  -d '{"secretId":"my-secret"}'
+```
+
+### Permissions
+
+Secret Manager operations map to GCP IAM permissions:
+
+| Operation | Permission | Resource |
+|-----------|-----------|----------|
+| CreateSecret | `secretmanager.secrets.create` | Parent project |
+| GetSecret | `secretmanager.secrets.get` | Secret |
+| UpdateSecret | `secretmanager.secrets.update` | Secret |
+| DeleteSecret | `secretmanager.secrets.delete` | Secret |
+| ListSecrets | `secretmanager.secrets.list` | Parent project |
+| AddSecretVersion | `secretmanager.versions.add` | Secret |
+| AccessSecretVersion | `secretmanager.versions.access` | Secret version |
+| GetSecretVersion | `secretmanager.versions.get` | Secret version |
+| ListSecretVersions | `secretmanager.versions.list` | Secret |
+| EnableSecretVersion | `secretmanager.versions.enable` | Secret version |
+| DisableSecretVersion | `secretmanager.versions.disable` | Secret version |
+| DestroySecretVersion | `secretmanager.versions.destroy` | Secret version |
+
+### Mode Differences
+
+| Scenario | `off` | `permissive` | `strict` |
+|----------|-------|--------------|----------|
+| No IAM emulator | Allow | Allow | Deny |
+| IAM unavailable | Allow | Allow | Deny |
+| No principal | Allow | Deny | Deny |
+| Permission denied | Allow | Deny | Deny |
+
+**Use `off` for local dev, `permissive` for integration tests, `strict` for CI.**
+
 ## Configuration
 
 ### Environment Variables
@@ -340,6 +420,13 @@ This project is not affiliated with, endorsed by, or sponsored by Google LLC or 
 Maintained by **Dayna Blackwell** — founder of Blackwell Systems, building reference infrastructure for cloud-native development.
 
 [GitHub](https://github.com/blackwell-systems) · [LinkedIn](https://linkedin.com/in/dayna-blackwell) · [Blog](https://blog.blackwell-systems.com)
+
+## Related Projects
+
+- [GCP IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) - Local IAM policy enforcement for emulators
+- [GCP KMS Emulator](https://github.com/blackwell-systems/gcp-kms-emulator) - Reference implementation for KMS API
+- [gcp-emulator-auth](https://github.com/blackwell-systems/gcp-emulator-auth) - Shared authentication library for GCP emulators
+- [GCP Emulator Control Plane](https://github.com/blackwell-systems/gcp-emulator-control-plane) - Orchestration for the complete emulator stack
 
 ## Trademarks
 

@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  iam-emulator:
+    image: ghcr.io/blackwell-systems/gcp-iam-emulator:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - IAM_PORT=8080
+      - IAM_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  secret-manager-emulator:
+    image: gcp-secret-manager-emulator:dual
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VARIANT: dual
+    ports:
+      - "9090:9090"  # gRPC
+      - "8081:8080"  # REST (avoid conflict with IAM)
+    environment:
+      - GCP_SECRET_MANAGER_GRPC_PORT=9090
+      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - IAM_MODE=permissive
+      - IAM_HOST=iam-emulator:8080
+    depends_on:
+      iam-emulator:
+        condition: service_healthy
+
+  secret-manager-strict:
+    image: gcp-secret-manager-emulator:dual
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VARIANT: dual
+    ports:
+      - "9091:9090"  # gRPC
+      - "8082:8080"  # REST
+    environment:
+      - GCP_SECRET_MANAGER_GRPC_PORT=9090
+      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - IAM_MODE=strict
+      - IAM_HOST=iam-emulator:8080
+    depends_on:
+      iam-emulator:
+        condition: service_healthy
+    profiles:
+      - ci
+
+  secret-manager-legacy:
+    image: gcp-secret-manager-emulator:dual
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VARIANT: dual
+    ports:
+      - "9092:9090"  # gRPC
+      - "8083:8080"  # REST
+    environment:
+      - GCP_SECRET_MANAGER_GRPC_PORT=9090
+      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - IAM_MODE=off
+    profiles:
+      - legacy
