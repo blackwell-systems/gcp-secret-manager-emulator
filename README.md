@@ -8,9 +8,11 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Buy%20Me%20a%20Coffee-yellow?logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/blackwellsystems)
 
-> The reference local implementation of the Google Cloud Secret Manager API for development and CI
+> **IAM-enforced Secret Manager emulator** — Test secrets AND permissions locally, fail like production would.
 
-A production-grade implementation providing complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. **Dual protocol support**: Native gRPC + REST/HTTP for maximum flexibility. No GCP credentials or network connectivity required.
+A production-grade Secret Manager implementation with optional **pre-flight IAM enforcement**. Unlike standard emulators that allow everything, this can deny unauthorized requests using real IAM policies.
+
+**Dual protocol support**: Native gRPC + REST/HTTP. No GCP credentials required.
 
 ## Quick Start
 
@@ -33,37 +35,78 @@ curl http://localhost:8080/v1/projects/test-project/secrets
 
 ---
 
+## Why This Emulator Is Different
+
+Most Secret Manager emulators skip authorization. This one can **enforce real IAM policies** using the [IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) as a control plane.
+
+| Approach | Example | When | Behavior |
+|----------|---------|------|----------|
+| Mock | Standard emulators | Never | Always allows |
+| Observer | iamlive (AWS) | After | Records what you used |
+| **Control Plane** | **Blackwell (this)** | **Before** | **Denies unauthorized** |
+
+**Key insight:** Pre-flight enforcement catches permission bugs in development/CI, not production.
+
+### Enforcement Modes
+
+- **Off** (default) - No IAM checks, fast iteration
+- **Permissive** - Enforce when IAM available, allow on connectivity errors (fail-open)
+- **Strict** - Always enforce, deny on connectivity errors (fail-closed, CI-ready)
+
+See the [category definition](https://github.com/blackwell-systems/gcp-emulator-auth/blob/master/CATEGORY.md) for the complete control plane architecture.
+
+---
+
 ## Usage Modes
 
 **Standalone** - Run independently for Secret Manager-only testing:
 ```bash
 server-dual
-# Single service, no IAM enforcement
+# Single service, no IAM enforcement (mode=off)
 ```
 
-**Orchestrated Ecosystem** - Use with [GCP Emulator Control Plane](https://github.com/blackwell-systems/gcp-emulator-control-plane) for multi-service testing with unified IAM:
+**With IAM Enforcement** - Run standalone with IAM checks:
+```bash
+# Start IAM emulator first
+cd ../gcp-iam-emulator && ./bin/server --config policy.yaml
+
+# Start Secret Manager with enforcement
+IAM_MODE=strict IAM_EMULATOR_HOST=localhost:8080 server-dual
+# Now requires valid permissions for all operations
+```
+
+**Orchestrated Ecosystem** - Use with [GCP IAM Control Plane](https://github.com/blackwell-systems/gcp-iam-control-plane) for multi-service testing:
 ```bash
 gcp-emulator start
 # Secret Manager + KMS + IAM emulator
-# Single policy file, cross-service authorization
+# Single policy file, unified authorization
 ```
 
-**Choose standalone for simple workflows, orchestrated for production-like testing.**
+**Choose standalone for simple workflows, IAM-enforced for production-like testing.**
 
 ---
 
 ## Features
 
+### Core Functionality
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
 - **SDK Compatible** - Drop-in replacement for official `cloud.google.com/go/secretmanager` (gRPC)
 - **curl Friendly** - Full REST API with JSON, test from any language or terminal
-- **IAM Integration** - Optional permission checks with GCP IAM Emulator
+- **Complete API** - 11 of 12 methods implemented (92% API coverage)
+- **High Test Coverage** - 90.8% coverage with comprehensive integration tests
+
+### IAM Enforcement (Optional)
+- **Pre-Flight Authorization** - Checks permissions before data access
+- **Real Policy Evaluation** - Uses IAM Emulator control plane for decisions
+- **Three Modes** - Off (default), Permissive (fail-open), Strict (fail-closed)
+- **Production Semantics** - Same permission names as real GCP (`secretmanager.secrets.get`)
+- **Fail Like Production** - Catch permission bugs in CI, not production
+
+### Operations
 - **No GCP Credentials** - Works entirely offline without authentication
 - **Fast & Lightweight** - In-memory storage, starts in milliseconds
 - **Docker Support** - Pre-built containers (gRPC-only, REST-only, or dual)
 - **Thread-Safe** - Concurrent access with proper synchronization
-- **High Test Coverage** - 90.8% coverage with comprehensive integration tests
-- **Complete API** - 11 of 12 methods implemented (92% API coverage)
 
 ## Supported Operations
 
@@ -442,7 +485,7 @@ Maintained by **Dayna Blackwell** — founder of Blackwell Systems, building ref
 
 ## Related Projects
 
-- [GCP Emulator Control Plane](https://github.com/blackwell-systems/gcp-emulator-control-plane) - Orchestration CLI + docker-compose for the complete emulator stack (IAM + Secret Manager + KMS)
+- [GCP Emulator Control Plane](https://github.com/blackwell-systems/gcp-iam-control-plane) - Orchestration CLI + docker-compose for the complete emulator stack (IAM + Secret Manager + KMS)
 - [GCP IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) - Local IAM policy enforcement for emulators
 - [GCP KMS Emulator](https://github.com/blackwell-systems/gcp-kms-emulator) - Reference implementation for KMS API
 - [gcp-emulator-auth](https://github.com/blackwell-systems/gcp-emulator-auth) - Shared authentication library for GCP emulators
