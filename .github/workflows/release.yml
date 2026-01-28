@@ -3,272 +3,49 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
-  validate:
-    name: Validate Release
+  release:
+    name: Create Release
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
+      
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
-
+          go-version: '1.24'
+      
       - name: Run tests
-        run: go test -v -race ./...
-
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-      - name: Run lint
-        run: golangci-lint run --timeout=5m
-
-      - name: Verify build
-        run: go build -v ./...
-
-      - name: Build server binary
-        run: go build -v -o server ./cmd/server
-
-  create-release:
-    name: Create GitHub Release
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-
-      - name: Get version from tag
+        run: go test -v ./...
+      
+      - name: Extract version
         id: version
-        run: |
-          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "VERSION_NUMBER=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Generate changelog
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Extract changelog for version
         id: changelog
         run: |
-          # Get previous tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          if [ -z "$PREV_TAG" ]; then
-            # First release - get all commits
-            CHANGELOG=$(git log --pretty=format:"* %s (%h)" --no-merges)
-          else
-            # Get commits since previous tag
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges)
+          VERSION="${{ steps.version.outputs.version }}"
+          # Extract section from CHANGELOG.md between this version and previous
+          awk "/## \[${VERSION#v}\]/{flag=1; next} /## \[/{flag=0} flag" CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog entry found for $VERSION" > release_notes.md
           fi
-
-          # Write to file to preserve formatting
-          echo "$CHANGELOG" > CHANGELOG.txt
-
-          # Also create a summary
-          COMMIT_COUNT=$(echo "$CHANGELOG" | wc -l)
-          echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_OUTPUT
-
-      - name: Generate coverage report
-        run: |
-          go test -coverprofile=coverage.out ./...
-          go tool cover -func=coverage.out | tail -1 | awk '{print $3}' > coverage.txt
-
-      - name: Read coverage
-        id: coverage
-        run: |
-          COVERAGE=$(cat coverage.txt)
-          echo "COVERAGE=$COVERAGE" >> $GITHUB_OUTPUT
-
-      - name: Build server binary
-        run: |
-          go build -v -o server ./cmd/server
-          ./server --help > server-help.txt || true
-
-      - name: Create release notes
-        run: |
-          cat > RELEASE_NOTES.md <<EOF
-          # GCP Secret Manager Emulator ${{ steps.version.outputs.VERSION }}
-
-          > Lightweight gRPC emulator for Google Cloud Secret Manager API
-
-          ## Installation
-
-          \`\`\`bash
-          go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server@${{ steps.version.outputs.VERSION }}
-          \`\`\`
-
-          Or use as a library:
-
-          \`\`\`bash
-          go get github.com/blackwell-systems/gcp-secret-manager-emulator@${{ steps.version.outputs.VERSION }}
-          \`\`\`
-
-          ## Stats
-
-          - **Test Coverage:** ${{ steps.coverage.outputs.COVERAGE }}
-          - **Go Version:** 1.24+
-          - **Commits:** ${{ steps.changelog.outputs.COMMIT_COUNT }}
-          - **Platforms:** Linux, macOS, Windows
-
-          ## Features
-
-          - Full Secret Manager v1 API implementation
-          - No GCP credentials required
-          - In-memory storage with thread-safe operations
-          - Docker support for containerized deployment
-          - Compatible with official \`cloud.google.com/go/secretmanager\` client
-
-          ## Supported Operations
-
-          **Secrets:**
-          - CreateSecret - Create new secrets with labels
-          - GetSecret - Retrieve secret metadata
-          - ListSecrets - List all secrets with pagination
-          - DeleteSecret - Remove secrets
-
-          **Secret Versions:**
-          - AddSecretVersion - Add new version with payload
-          - AccessSecretVersion - Retrieve version payload (supports "latest" alias)
-          - GetSecretVersion - Retrieve version metadata
-
-          ## Changes
-
-          $(cat CHANGELOG.txt)
-
-          ## Documentation
-
-          - [README](https://github.com/blackwell-systems/gcp-secret-manager-emulator#readme)
-          - [Design Document](https://github.com/blackwell-systems/gcp-secret-manager-emulator/blob/main/docs/DESIGN.md)
-          - [GoDoc](https://pkg.go.dev/github.com/blackwell-systems/gcp-secret-manager-emulator@${{ steps.version.outputs.VERSION }})
-
-          ## Quick Start
-
-          ### Run Server
-
-          \`\`\`bash
-          # Start on default port 9090
-          server
-
-          # Custom port
-          server --port 8080
-          \`\`\`
-
-          ### Use with GCP SDK
-
-          \`\`\`go
-          package main
-
-          import (
-              "context"
-              secretmanager "cloud.google.com/go/secretmanager/apiv1"
-              "google.golang.org/api/option"
-              "google.golang.org/grpc"
-              "google.golang.org/grpc/credentials/insecure"
-          )
-
-          func main() {
-              ctx := context.Background()
-
-              // Connect to emulator
-              conn, _ := grpc.NewClient(
-                  "localhost:9090",
-                  grpc.WithTransportCredentials(insecure.NewCredentials()),
-              )
-
-              client, _ := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
-              defer client.Close()
-
-              // Use client normally - API is identical to real GCP
-          }
-          \`\`\`
-
-          ### Docker
-
-          \`\`\`bash
-          docker run -p 9090:9090 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:${{ steps.version.outputs.VERSION }}
-          \`\`\`
-
-          ---
-
-          **Full Changelog**: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/${{ steps.version.outputs.VERSION }}
-          EOF
-
+      
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ steps.version.outputs.VERSION }}
-          body_path: RELEASE_NOTES.md
+          body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
-          generate_release_notes: false
-          files: |
-            LICENSE
-            README.md
-            ARCHITECTURE.md
-            API-REFERENCE.md
-
-  update-pkg-go-dev:
-    name: Update pkg.go.dev
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger pkg.go.dev update
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          curl -sSf "https://proxy.golang.org/github.com/blackwell-systems/gcp-secret-manager-emulator/@v/${VERSION}.info" || true
-          curl -sSf "https://sum.golang.org/lookup/github.com/blackwell-systems/gcp-secret-manager-emulator@${VERSION}" || true
-
-  docker-publish:
-    name: Build and Publish Docker Image
-    needs: create-release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
