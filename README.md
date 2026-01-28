@@ -53,7 +53,7 @@ Most Secret Manager emulators skip authorization. This one can **enforce real IA
 - **Permissive** - Enforce when IAM available, allow on connectivity errors (fail-open)
 - **Strict** - Always enforce, deny on connectivity errors (fail-closed, CI-ready)
 
-See the [category definition](https://github.com/blackwell-systems/gcp-emulator-auth/blob/master/CATEGORY.md) for the complete control plane architecture.
+
 
 ---
 
