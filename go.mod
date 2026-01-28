@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	cloud.google.com/go/secretmanager v1.16.0
-	github.com/blackwell-systems/gcp-emulator-auth v0.2.0
+	github.com/blackwell-systems/gcp-emulator-auth v0.3.0
 	google.golang.org/api v0.257.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
