@@ -47,13 +47,36 @@ Most Secret Manager emulators skip authorization. This one can **enforce real IA
 
 Pre-flight enforcement catches permission bugs in development/CI, not production.
 
+### The Hermetic Seal
+
+Before Blackwell, **"GCP Hermetic Testing" was essentially impossible.**
+
+Google's official emulators have a critical flaw: they ignore authorization. Your tests pass locally because the emulator allows everything, then fail in production when IAM denies the request.
+
+**The two bad options:**
+
+1. **Fake Auth** - Emulator ignores permissions (fast, but catches zero IAM bugs)
+2. **Staging Leak** - Call real GCP IAM API (hermetic seal broken, tests become flaky)
+
+**Blackwell closes the hermetic seal:**
+
+With IAM enforcement enabled, your tests:
+- **Fail exactly like production** (same `PermissionDenied` errors)
+- **Run completely offline** (no network, no GCP credentials)
+- **Execute deterministically** (0ms IAM propagation delay vs 1-60s in real GCP)
+
+This is **true hermetic testing** - all dependencies sealed inside the boundary, no external leaks.
+
 ### Enforcement Modes
 
 - **Off** (default) - No IAM checks, fast iteration
 - **Permissive** - Enforce when IAM available, allow on connectivity errors (fail-open)
 - **Strict** - Always enforce, deny on connectivity errors (fail-closed, CI-ready)
 
+**The Security Paradox:**
+> "A test that cannot fail due to a permission error is a test that has not fully validated the code's production readiness."
 
+Use strict mode in CI to catch IAM bugs before deployment, not during Friday night incidents.
 
 ---
 
