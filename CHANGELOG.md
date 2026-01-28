@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-28
+
 ### Changed
+- **Component Identification**: Pass "gcp-secret-manager-emulator" to auth client
+  - Enables trace analysis tools to identify calling service
+  - Authorization traces now show both policy engine and requesting component
+- Upgraded to gcp-emulator-auth v0.3.0 (requires component parameter)
 - Enhanced README with hermetic seal narrative
   - Explains pre-flight IAM enforcement vs post-hoc observation
   - Clarifies control plane/data plane architecture
