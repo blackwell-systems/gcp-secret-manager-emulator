@@ -53,7 +53,7 @@ func NewServer() (*Server, error) {
 	s.iamMode = config.Mode
 
 	if config.Mode.IsEnabled() {
-		client, err := emulatorauth.NewClient(config.Host, config.Mode)
+		client, err := emulatorauth.NewClient(config.Host, config.Mode, "gcp-secret-manager-emulator")
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to IAM emulator: %w", err)
 		}
