@@ -45,7 +45,7 @@ Most Secret Manager emulators skip authorization. This one can **enforce real IA
 | Observer | iamlive (AWS) | After | Records what you used |
 | **Control Plane** | **Blackwell (this)** | **Before** | **Denies unauthorized** |
 
-**Key insight:** Pre-flight enforcement catches permission bugs in development/CI, not production.
+Pre-flight enforcement catches permission bugs in development/CI, not production.
 
 ### Enforcement Modes
 
