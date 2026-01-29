@@ -471,13 +471,13 @@ All Secret Manager operations except IAM methods.
 **Not Implemented:**
 - IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
 
-**Rationale:** IAM methods are not needed for local testing since the emulator has no authentication. All requests succeed regardless of permissions.
+**Rationale:** IAM methods manage per-resource policies. This emulator uses the [IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) as a centralized control plane instead. Authorization is enforced pre-flight via the IAM emulator's policy engine, not through resource-level policy storage.
 
 ## Differences from Real GCP
 
 **Intentional Simplifications:**
-- No authentication/authorization (all requests succeed)
-- No IAM permissions or resource policies
+- Optional IAM enforcement (off by default, strict mode available for CI)
+- Centralized policy evaluation (via IAM Emulator, not per-resource policies)
 - No encryption at rest (in-memory storage)
 - No replication or regional constraints
 - Simplified error responses (no retry-after headers)
