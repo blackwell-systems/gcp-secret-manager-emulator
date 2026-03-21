@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ListSecrets` now returns secrets in stable alphabetical order on every call.
   Previously, results were in random map-iteration order, which could produce
   duplicates or skipped entries across paginated calls.
+- Fixed data race in `gateway.Server` where `Start()` and `Stop()` accessed
+  `httpServer` concurrently without synchronization. The field is now protected
+  by a mutex, eliminating the race detected by `-race` in `TestGatewayStartStop`.
 - README documented `IAM_HOST` as the IAM emulator address variable; the
   `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`. All occurrences
   updated.
