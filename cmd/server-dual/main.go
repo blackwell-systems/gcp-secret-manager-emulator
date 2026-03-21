@@ -1,4 +1,4 @@
-// GCP Secret Manager Mock Server - Dual Protocol
+// GCP Secret Manager Emulator - Dual Protocol
 //
 // Provides both gRPC and REST/HTTP APIs for Google Cloud Secret Manager.
 // This server exposes both protocols simultaneously for maximum flexibility.
@@ -36,13 +36,13 @@ var (
 	grpcPort = flag.Int("grpc-port", getEnvInt("GCP_MOCK_GRPC_PORT", 9090), "gRPC port to listen on")
 	httpPort = flag.Int("http-port", getEnvInt("GCP_MOCK_HTTP_PORT", 8080), "HTTP port to listen on")
 	logLevel = flag.String("log-level", getEnv("GCP_MOCK_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
-	version  = "1.1.0"
+	version  = "1.3.0"
 )
 
 func main() {
 	flag.Parse()
 
-	log.Printf("GCP Secret Manager Mock Server v%s (Dual Protocol)", version)
+	log.Printf("GCP Secret Manager Emulator v%s (Dual Protocol)", version)
 	log.Printf("Log level: %s", *logLevel)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,11 +56,11 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	mockServer, err := server.NewServer()
+	srv, err := server.NewServer()
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
-	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, mockServer)
+	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, srv)
 	reflection.Register(grpcServer)
 
 	// Start gRPC server in background
