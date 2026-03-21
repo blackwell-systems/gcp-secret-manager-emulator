@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking**: Startup log strings changed from "GCP Secret Manager Mock Server" to
   "GCP Secret Manager Emulator". Users parsing stdout for the old string (log alerts,
   CI grep scripts) must update their patterns.
+- **Breaking**: PermissionDenied error messages now include context. The `checkPermission`
+  error message format has changed from the generic `"Permission denied"` to a
+  detailed message that includes the principal, the required permission, and the
+  resource. Example:
+  `"Permission denied: principal 'user:x@example.com' lacks 'secretmanager.secrets.get' on resource 'projects/p/secrets/s'"`
+  When no principal header is present, the principal is rendered as `"(no principal)"`.
+  Callers doing an exact string match on `"Permission denied"` must update their
+  checks; callers using `strings.Contains(err.Error(), "Permission denied")` are
+  unaffected.
 - **Component Identification**: Pass "gcp-secret-manager-emulator" to auth client
   - Enables trace analysis tools to identify calling service
   - Authorization traces now show both policy engine and requesting component
