@@ -3,7 +3,7 @@
 - **Getting Started**
   - [Overview](/)
   - [Quick Start](/#quick-start)
-  - [Installation](/#installation)
+  - [Quick Start](/#quick-start)
   - [Docker Usage](/#docker)
 
 - **Reference**
@@ -13,7 +13,7 @@
 - **Usage**
   - [Go Client Examples](/#use-with-gcp-sdk)
   - [Configuration](/#configuration)
-  - [Testing Strategies](/#testing-strategies)
+  - [Testing Strategies](API-REFERENCE.md#testing-strategies)
 
 - **Implementation**
   - [Supported Operations](/#supported-operations)
