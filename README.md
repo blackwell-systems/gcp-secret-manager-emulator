@@ -16,6 +16,8 @@ A production-grade Secret Manager implementation with optional **pre-flight IAM 
 
 ## Quick Start
 
+**Prerequisites:** Go 1.24+ or Docker
+
 ```bash
 # Install (dual protocol: gRPC + REST)
 go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server-dual@latest

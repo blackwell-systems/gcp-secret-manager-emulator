@@ -1,5 +1,9 @@
 # Architecture
 
+> **Audience:** This document is for contributors and maintainers.
+> If you just want to use the emulator, see the [README](../README.md)
+> and [API Reference](API-REFERENCE.md).
+
 This document describes the architecture and design decisions of the GCP Secret Manager Emulator.
 
 ## Overview
