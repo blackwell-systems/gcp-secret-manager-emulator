@@ -232,6 +232,9 @@ message ListSecretsResponse {
 }
 ```
 
+**Ordering:** Results are returned in stable alphabetical order by secret name
+on every call, including across paginated requests.
+
 **Example (Go):**
 ```go
 // List first page
@@ -450,6 +453,9 @@ message ListSecretVersionsResponse {
   string next_page_token = 2;          // Token for next page (empty if done)
 }
 ```
+
+**Ordering:** Versions are returned in ascending numeric order
+(e.g., 1, 2, 3, ..., 10, 11). Lexicographic ordering is NOT used.
 
 **Example (Go):**
 ```go
@@ -802,6 +808,7 @@ The emulator uses standard gRPC status codes:
 | `InvalidArgument` | Missing required field | Empty parent, name, or secret_id |
 | `NotFound` | Resource doesn't exist | Secret or version not found |
 | `AlreadyExists` | Duplicate resource | Creating secret with existing ID |
+| `PermissionDenied` | IAM check failed — principal lacks required permission | `IAM_MODE=permissive` or `IAM_MODE=strict` and permission denied; format: `Permission denied: principal '<principal>' lacks '<permission>' on resource '<resource>'`; when no principal header: principal is `"(no principal)"` |
 | `FailedPrecondition` | Invalid state | Accessing disabled/destroyed version |
 | `Unimplemented` | Feature not supported | IAM methods only |
 
@@ -1199,10 +1206,14 @@ func TestIntegration(t *testing.T) {
 
 ### Server Options
 
-| Flag | Env Var | Default | Description |
-|------|---------|---------|-------------|
-| `--port` | `GCP_MOCK_PORT` | `9090` | gRPC port to listen on |
-| `--log-level` | `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| Flag             | Env Var               | Default        | Description |
+|------------------|-----------------------|----------------|-------------|
+| `--port`         | `GCP_MOCK_PORT`       | `9090`         | gRPC port (server) |
+| (none)           | `GCP_MOCK_GRPC_PORT`  | `9090`         | gRPC port (server-rest, server-dual) |
+| `--http-port`    | `GCP_MOCK_HTTP_PORT`  | `8080`         | HTTP port (server-rest, server-dual) |
+| `--log-level`    | `GCP_MOCK_LOG_LEVEL`  | `info`         | Log level: debug, info, warn, error |
+| (none)           | `IAM_MODE`            | `off`          | IAM enforcement: off, permissive, strict |
+| (none)           | `IAM_EMULATOR_HOST`   | `localhost:8080` | IAM emulator address |
 
 ### Example:
 
