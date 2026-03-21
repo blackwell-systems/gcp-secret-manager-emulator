@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -76,6 +77,9 @@ func (s *Server) Stop(ctx context.Context) error {
 // handleRequest routes REST requests to appropriate gRPC calls
 func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if principal := emulatorauth.ExtractPrincipalFromRequest(r); principal != "" {
+		ctx = emulatorauth.InjectPrincipalToContext(ctx, principal)
+	}
 
 	// Parse path: /v1/projects/{project}/secrets/{secret}/versions/{version}
 	path := strings.TrimPrefix(r.URL.Path, "/v1/")
