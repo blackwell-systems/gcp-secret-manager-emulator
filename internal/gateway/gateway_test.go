@@ -949,8 +949,8 @@ type recordingResponseWriter struct {
 	body   strings.Builder
 }
 
-func (r *recordingResponseWriter) Header() http.Header        { return r.header }
-func (r *recordingResponseWriter) WriteHeader(code int)       { r.status = code }
+func (r *recordingResponseWriter) Header() http.Header  { return r.header }
+func (r *recordingResponseWriter) WriteHeader(code int) { r.status = code }
 func (r *recordingResponseWriter) Write(b []byte) (int, error) {
 	if r.status == 0 {
 		r.status = http.StatusOK

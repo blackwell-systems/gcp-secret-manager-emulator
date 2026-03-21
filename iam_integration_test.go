@@ -70,14 +70,14 @@ func TestIAMIntegration(t *testing.T) {
 	iamHost := os.Getenv("IAM_EMULATOR_HOST")
 
 	tests := []struct {
-		name          string
-		iamMode       string
-		principal     string
-		clearPolicy   bool // clear projects/test policy before test (ensures clean state)
-		setupPolicy   bool // grant user:admin@example.com secretmanager.admin on projects/test
-		operation     func(secretmanagerpb.SecretManagerServiceClient, context.Context) error
-		expectError   bool
-		expectedCode  codes.Code
+		name         string
+		iamMode      string
+		principal    string
+		clearPolicy  bool // clear projects/test policy before test (ensures clean state)
+		setupPolicy  bool // grant user:admin@example.com secretmanager.admin on projects/test
+		operation    func(secretmanagerpb.SecretManagerServiceClient, context.Context) error
+		expectError  bool
+		expectedCode codes.Code
 	}{
 		{
 			// Permissive mode only fails-open on *connectivity* errors.
