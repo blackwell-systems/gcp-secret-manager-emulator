@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
@@ -23,6 +24,7 @@ type Server struct {
 	grpcClient secretmanagerpb.SecretManagerServiceClient
 	httpServer *http.Server
 	conn       *grpc.ClientConn
+	mu         sync.Mutex
 }
 
 // NewServer creates a new REST gateway server that proxies to a gRPC server
@@ -55,12 +57,16 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		fmt.Fprintf(w, `{"status":"healthy"}`)
 	})
 
-	s.httpServer = &http.Server{
+	srv := &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
 
-	return s.httpServer.ListenAndServe()
+	s.mu.Lock()
+	s.httpServer = srv
+	s.mu.Unlock()
+
+	return srv.ListenAndServe()
 }
 
 // Stop gracefully stops the REST gateway server
@@ -68,8 +74,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.conn != nil {
 		s.conn.Close()
 	}
-	if s.httpServer != nil {
-		return s.httpServer.Shutdown(ctx)
+	s.mu.Lock()
+	srv := s.httpServer
+	s.mu.Unlock()
+	if srv != nil {
+		return srv.Shutdown(ctx)
 	}
 	return nil
 }
