@@ -1,11 +1,11 @@
-// GCP Secret Manager Mock Server
+// GCP Secret Manager Emulator
 //
-// A lightweight mock implementation of Google Cloud Secret Manager API for local testing.
+// A lightweight emulator of Google Cloud Secret Manager API for local testing.
 // This server implements the gRPC Secret Manager API without requiring GCP credentials.
 //
 // Usage:
 //
-//	gcp-secret-manager-mock --port 9090
+//	gcp-secret-manager-emulator --port 9090
 //
 // Environment Variables:
 //
@@ -32,13 +32,13 @@ import (
 var (
 	port     = flag.Int("port", getEnvInt("GCP_MOCK_PORT", 9090), "Port to listen on")
 	logLevel = flag.String("log-level", getEnv("GCP_MOCK_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
-	version  = "1.1.0" // Will be updated during releases
+	version  = "1.3.0" // Will be updated during releases
 )
 
 func main() {
 	flag.Parse()
 
-	log.Printf("GCP Secret Manager Mock Server v%s", version)
+	log.Printf("GCP Secret Manager Emulator v%s", version)
 	log.Printf("Starting on port %d with log level: %s", *port, *logLevel)
 
 	// Create listener
@@ -50,12 +50,12 @@ func main() {
 	// Create gRPC server
 	grpcServer := grpc.NewServer()
 
-	// Create and register mock service
-	mockServer, err := server.NewServer()
+	// Create and register emulator service
+	srv, err := server.NewServer()
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
-	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, mockServer)
+	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, srv)
 
 	// Register reflection service (for grpc_cli debugging)
 	reflection.Register(grpcServer)

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0] - 2026-01-28
 
 ### Changed
+- **Breaking**: Startup log strings changed from "GCP Secret Manager Mock Server" to
+  "GCP Secret Manager Emulator". Users parsing stdout for the old string (log alerts,
+  CI grep scripts) must update their patterns.
 - **Component Identification**: Pass "gcp-secret-manager-emulator" to auth client
   - Enables trace analysis tools to identify calling service
   - Authorization traces now show both policy engine and requesting component
