@@ -370,6 +370,89 @@ func TestStorage_Concurrent(t *testing.T) {
 	})
 }
 
+func TestListSecrets_DeterministicOrdering(t *testing.T) {
+	storage := NewStorage()
+	ctx := context.Background()
+
+	// Add secrets with names that would sort differently than insertion order
+	secretNames := []string{"z-secret", "a-secret", "m-secret", "b-secret", "n-secret"}
+	for _, name := range secretNames {
+		_, err := storage.CreateSecret(ctx, "projects/ordering-test", name, &secretmanagerpb.Secret{})
+		if err != nil {
+			t.Fatalf("Setup failed: %v", err)
+		}
+	}
+
+	// Call ListSecrets twice with no pageToken
+	secrets1, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "")
+	if err != nil {
+		t.Fatalf("ListSecrets() first call error = %v", err)
+	}
+
+	secrets2, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "")
+	if err != nil {
+		t.Fatalf("ListSecrets() second call error = %v", err)
+	}
+
+	if len(secrets1) != 5 {
+		t.Fatalf("Expected 5 secrets, got %d", len(secrets1))
+	}
+
+	// Assert both calls return secrets in the same order
+	for i := range secrets1 {
+		if secrets1[i].Name != secrets2[i].Name {
+			t.Errorf("Call 1 and call 2 differ at index %d: %s vs %s", i, secrets1[i].Name, secrets2[i].Name)
+		}
+	}
+
+	// Assert first result is lexicographically smallest
+	expectedFirst := "projects/ordering-test/secrets/a-secret"
+	if secrets1[0].Name != expectedFirst {
+		t.Errorf("First secret = %s, want %s", secrets1[0].Name, expectedFirst)
+	}
+}
+
+func TestListSecretVersions_NumericOrdering(t *testing.T) {
+	storage := NewStorage()
+	ctx := context.Background()
+
+	_, err := storage.CreateSecret(ctx, "projects/test-project", "versioned-secret", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	secretName := "projects/test-project/secrets/versioned-secret"
+
+	// Add 12 versions to ensure version numbers >= 10 exist
+	for i := 0; i < 12; i++ {
+		payload := &secretmanagerpb.SecretPayload{
+			Data: []byte(fmt.Sprintf("version-%d-data", i+1)),
+		}
+		_, err := storage.AddSecretVersion(ctx, secretName, payload)
+		if err != nil {
+			t.Fatalf("AddSecretVersion() failed at iteration %d: %v", i+1, err)
+		}
+	}
+
+	versions, _, err := storage.ListSecretVersions(ctx, secretName, 100, "", "")
+	if err != nil {
+		t.Fatalf("ListSecretVersions() error = %v", err)
+	}
+
+	if len(versions) != 12 {
+		t.Fatalf("Expected 12 versions, got %d", len(versions))
+	}
+
+	// Assert versions are returned in numeric order: 1, 2, 3, ..., 10, 11, 12
+	for i, v := range versions {
+		expectedVersionNum := i + 1
+		expectedName := fmt.Sprintf("%s/versions/%d", secretName, expectedVersionNum)
+		if v.Name != expectedName {
+			t.Errorf("Version at index %d: got %s, want %s", i, v.Name, expectedName)
+		}
+	}
+}
+
 func TestStorage_ClearAndCount(t *testing.T) {
 	storage := NewStorage()
 	ctx := context.Background()
