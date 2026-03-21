@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- REST gateway (`server-dual`, `server-rest`) now correctly propagates the
+  `X-Emulator-Principal` header to the gRPC layer. Previously the header was
+  silently dropped, effectively bypassing IAM enforcement for all HTTP clients
+  regardless of `IAM_MODE`. **Behavior change**: HTTP requests that send
+  `X-Emulator-Principal` with `IAM_MODE=permissive` or `IAM_MODE=strict` will
+  now be subject to IAM checks; requests that were previously allowed through
+  may now return `PermissionDenied`.
+- `ListSecretVersions` now returns versions in numeric order (`1, 2, 3, ..., 10,
+  11, 12`) instead of lexicographic order (`1, 10, 11, 12, 2, 3, ...`). Only
+  affects secrets with 10 or more versions. **Behavior change**: clients
+  depending on the previous lexicographic order will see a different sequence.
+- `ListSecrets` now returns secrets in stable alphabetical order on every call.
+  Previously, results were in random map-iteration order, which could produce
+  duplicates or skipped entries across paginated calls.
+- README documented `IAM_HOST` as the IAM emulator address variable; the
+  `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`. All occurrences
+  updated.
 - IAM integration tests used wrong environment variable (`IAM_HOST`) to configure
   the IAM emulator host; the `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`.
   Tests now use the correct variable for skip guards, connectivity simulation, and
