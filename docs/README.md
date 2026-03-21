@@ -22,7 +22,7 @@ A production-grade implementation providing complete, behaviorally-accurate Secr
 - **Docker Support** - Pre-built containers (gRPC-only, REST-only, or dual)
 - **Thread-Safe** - Concurrent access with proper synchronization
 - **High Test Coverage** - 90.8% coverage with comprehensive integration tests
-- **Complete API** - 11 of 12 methods implemented (92% API coverage)
+- **Complete API** - 12 of 12 core methods implemented
 
 ## Supported Operations
 
@@ -47,7 +47,12 @@ A production-grade implementation providing complete, behaviorally-accurate Secr
 ### Not Yet Implemented
 - IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
 
-**Rationale:** IAM methods are not needed for local testing since the emulator has no authentication. All requests succeed regardless of permissions.
+**Rationale:** Per-resource IAM policy methods (SetIamPolicy, GetIamPolicy,
+TestIamPermissions) are not needed because authorization is handled via the
+[IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) control
+plane. Set `IAM_MODE=permissive` or `IAM_MODE=strict` to enable pre-flight
+permission checks. With `IAM_MODE=off` (default), all requests succeed
+regardless of permissions.
 
 ## Quick Start
 
@@ -204,10 +209,14 @@ services:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GCP_MOCK_PORT` | `9090` | Port to listen on |
-| `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| Variable              | Default         | Description |
+|-----------------------|-----------------|-------------|
+| `GCP_MOCK_PORT`       | `9090`          | gRPC port (server, server-grpc) |
+| `GCP_MOCK_GRPC_PORT`  | `9090`          | gRPC port (server-rest, server-dual) |
+| `GCP_MOCK_HTTP_PORT`  | `8080`          | HTTP port (server-rest, server-dual) |
+| `GCP_MOCK_LOG_LEVEL`  | `info`          | Log level: debug, info, warn, error |
+| `IAM_MODE`            | `off`           | IAM enforcement: off, permissive, strict |
+| `IAM_EMULATOR_HOST`   | `localhost:8080`| IAM emulator address |
 
 ### Command Line Flags
 
