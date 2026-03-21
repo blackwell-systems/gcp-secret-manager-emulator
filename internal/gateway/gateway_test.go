@@ -1183,3 +1183,31 @@ func TestEmptyPayload(t *testing.T) {
 		t.Errorf("AddSecretVersion with empty payload status = %d, want %d; body = %s", resp.StatusCode, http.StatusOK, respBody)
 	}
 }
+
+func TestHandleRequest_PrincipalHeaderPropagation(t *testing.T) {
+	baseURL, cleanup := startTestGateway(t)
+	defer cleanup()
+
+	// First create a secret so the list endpoint has something to return.
+	doRequest(t, http.MethodPost, baseURL+"/v1/projects/test/secrets?secretId=principal-test", `{"replication":{"automatic":{}}}`)
+
+	// Send a request with X-Emulator-Principal header and verify it does not
+	// cause a server error (i.e. the principal injection path compiles and
+	// executes without panicking).
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		baseURL+"/v1/projects/test/secrets", nil)
+	if err != nil {
+		t.Fatalf("Failed to build request: %v", err)
+	}
+	req.Header.Set("X-Emulator-Principal", "user:test@example.com")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusInternalServerError {
+		t.Errorf("X-Emulator-Principal header caused a 500; want non-500 status, got %d", resp.StatusCode)
+	}
+}
