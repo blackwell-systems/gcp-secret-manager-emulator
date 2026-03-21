@@ -334,9 +334,9 @@ stateDiagram-v2
 
 | Method | Status | Reason |
 |--------|--------|--------|
-| IAM methods | - Unimplemented | No auth/authz in testing |
+| IAM methods | - Unimplemented | Uses centralized IAM Emulator instead of per-resource policies |
 
-**Coverage:** 11 of 12 methods (92%) - all core Secret Manager operations implemented.
+**Coverage:** 12 of 12 core methods (100%) - all Secret Manager operations implemented. IAM methods (SetIamPolicy, GetIamPolicy, TestIamPermissions) are not implemented; authorization is handled via the external IAM Emulator control plane.
 
 ## Resource Naming
 
@@ -392,7 +392,7 @@ sequenceDiagram
 **Implementation:**
 - Page token is a simple integer offset (stringified)
 - Default page size: 100 (if not specified)
-- Results are deterministic (map iteration order in Go 1.12+)
+- Results are not guaranteed to be ordered (Go map iteration is non-deterministic)
 
 ## Deployment Modes
 
@@ -510,37 +510,36 @@ graph TB
 - + Easy to reason about
 - + Sufficient for testing loads
 
-### 3. Partial API Implementation
+### 3. Complete API Implementation
 
-**Decision:** Implement only core CRUD methods, not advanced version lifecycle.
+**Decision:** Implement all 12 core Secret Manager methods including full version lifecycle.
 
 **Rationale:**
 - 100% coverage of vaultmux requirements
-- 90%+ coverage of typical use cases
-- Reduced complexity (7 methods vs 12+)
-- Faster initial development
+- Full version lifecycle support (Enable, Disable, Destroy)
+- Covers all common and advanced testing scenarios
 
 **Trade-offs:**
-- - Can't test version enable/disable workflows
-- + Simpler codebase
-- + Easier to maintain
-- + Covers common path
+- + Full API coverage for comprehensive testing
+- + Supports version state management workflows
+- - Larger codebase than minimal CRUD subset
 
-### 4. No IAM Implementation
+### 4. Optional IAM Integration
 
-**Decision:** Skip IAM methods entirely.
+**Decision:** Provide opt-in IAM enforcement via external IAM Emulator control plane.
 
 **Rationale:**
-- Testing doesn't need access control
-- Emulator runs in trusted environment
-- Reduces complexity significantly
-- IAM is orthogonal to secret storage
+- Default mode (`off`) keeps emulator simple for basic use
+- Permissive/Strict modes catch permission bugs in CI
+- Centralized policy via IAM Emulator, not per-resource IAM methods
+- Pre-flight enforcement matches production authorization flow
 
 **Trade-offs:**
-- - Can't test permission-based workflows
-- + Much simpler implementation
-- + No authentication overhead
-- + Suitable for testing
+- + Catches real authorization bugs in development/CI
+- + Zero overhead when disabled (default)
+- + Deterministic policy evaluation (no propagation delays)
+- - Requires IAM Emulator for enforcement features
+- - Per-resource IAM methods (SetIamPolicy, etc.) not implemented
 
 ## Performance Characteristics
 

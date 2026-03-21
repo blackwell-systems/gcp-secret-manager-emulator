@@ -33,3 +33,9 @@ Thumbs.db
 
 # Third-party proto files (downloaded at build time)
 third_party/
+
+# SAW agent state (worktree journals, cursors, tool results)
+.saw-state/
+
+# SAW worktrees (cleaned up by sawtools cleanup after merge)
+.claude/worktrees/

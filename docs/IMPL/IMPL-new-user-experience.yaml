@@ -1,0 +1,396 @@
+title: Improve New-User Experience
+feature_slug: new-user-experience
+verdict: SUITABLE
+suitability_assessment: |
+    SUITABLE. The work decomposes cleanly into 3 agents across 1 wave with fully
+    disjoint file ownership. All changes are well-defined from the audit findings
+    with no investigation required.
+
+    File decomposition: 10 files across 3 agents, no shared files.
+    - Agent A: 3 cmd/*/main.go files (naming fix + version bump)
+    - Agent B: 1 Go source file (error message improvement)
+    - Agent C: 4 files (docs TOC, architecture note, README prereqs, new docker-compose)
+
+    Investigation: None needed. All changes are specified in the audit.
+    Interface discoverability: No cross-agent interfaces. Changes are independent.
+    Pre-implementation status: README already has Docker-first Quick Start, Python/Node
+    examples, SECRETMANAGER_EMULATOR_HOST note, and server variant guidance from a
+    prior audit agent. Agent C must verify before duplicating.
+
+    Parallelization value: High. All 3 agents are independent (single wave). Build/test
+    cycle is ~15s (go test ./...) but agents touch disjoint concerns so no sequencing
+    needed. Agent A and B require compilation verification; Agent C is docs + yaml.
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, IMPL doc)
+    - Agent execution: ~8 min (3 agents x ~5 min avg, fully parallel single wave)
+    - Merge & verification: ~3 min
+    Total SAW time: ~19 min
+
+    Sequential baseline: ~20 min (3 agents x ~7 min avg sequential with context switching)
+    Time savings: ~1 min (5% faster)
+
+    Recommendation: Marginal speed gains but clear coordination value. The IMPL doc
+    provides an audit trail mapping each audit finding to its implementing agent and
+    ensures the naming/version/error-message changes are verified independently.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: cmd/server/main.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: cmd/server-rest/main.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: cmd/server-dual/main.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/server/server.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: docs/API-REFERENCE.md
+      agent: C
+      wave: 1
+      action: modify
+    - file: docs/ARCHITECTURE.md
+      agent: C
+      wave: 1
+      action: modify
+    - file: README.md
+      agent: C
+      wave: 1
+      action: modify
+    - file: docker-compose.standalone.yml
+      agent: C
+      wave: 1
+      action: new
+interface_contracts:
+    - name: checkPermission
+      description: |
+        Enhanced error message format for PermissionDenied responses. The existing
+        checkPermission method in server.go must be updated to include the principal
+        and the specific permission that was denied in the error string.
+      definition: |
+        // When permission is denied, return an error like:
+        // "Permission denied: principal 'user:x@example.com' lacks
+        //  'secretmanager.secrets.get' on resource 'projects/p/secrets/s'"
+        //
+        // When no principal header is present (empty string from ExtractPrincipalFromContext),
+        // render the principal as "(no principal)":
+        // "Permission denied: principal '(no principal)' lacks
+        //  'secretmanager.secrets.get' on resource 'projects/p/secrets/s'"
+        //
+        // Instead of the current generic: "Permission denied"
+        //
+        // The principal comes from: emulatorauth.ExtractPrincipalFromContext(ctx)
+        // The permission comes from: authz.GetPermission(operation).Permission
+        // The resource is the resource parameter passed to checkPermission.
+      location: internal/server/server.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Rename "Mock" to "Emulator" and bump version in all cmd/*/main.go
+
+            ### What to implement
+
+            In all three files (cmd/server/main.go, cmd/server-rest/main.go,
+            cmd/server-dual/main.go), make these changes:
+
+            1. **Rename "Mock" to "Emulator" in all user-visible strings:**
+               - Package doc comments: change "Mock Server" to "Emulator"
+               - log.Printf startup messages: change "GCP Secret Manager Mock Server"
+                 to "GCP Secret Manager Emulator"
+               - Variable names `mockServer` should become `emulatorServer` (or `srv`)
+               - Comments referencing "mock" should say "emulator" where user-facing
+               - The usage example in cmd/server/main.go doc comment says
+                 `gcp-secret-manager-mock`; change to `gcp-secret-manager-emulator`
+               - Environment variable names (GCP_MOCK_PORT, etc.) should NOT change
+                 as that would be a breaking change for existing users. Leave env vars
+                 as-is.
+
+            2. **Update hardcoded version from "1.1.0" to "1.3.0":**
+               - Each file has `version = "1.1.0"` -- change to `version = "1.3.0"`
+               - This matches the latest entry in CHANGELOG.md
+
+            ### Interfaces
+            No cross-agent interfaces. These files are self-contained binaries.
+
+            ### Tests
+            No new tests needed. Existing tests do not test log output strings.
+            Verify the build compiles cleanly.
+
+            ### Verification gate
+            ```bash
+            go build ./cmd/server && go build ./cmd/server-rest && go build ./cmd/server-dual
+            go vet ./cmd/...
+            ```
+
+            ### Constraints
+            - Do NOT rename environment variables (GCP_MOCK_PORT, GCP_MOCK_GRPC_PORT,
+              GCP_MOCK_HTTP_PORT, GCP_MOCK_LOG_LEVEL) -- these are user-facing config
+              and renaming would be a breaking change.
+            - Do NOT change the package name or import paths.
+            - Keep the getEnv/getEnvInt helper functions unchanged.
+            - **Log string change is a breaking change for log consumers.** Any user
+              parsing stdout for "GCP Secret Manager Mock Server" (log alerts, CI grep
+              scripts) will break. Add a note to CHANGELOG.md under v1.3.0 documenting
+              that startup log strings changed from "Mock Server" to "Emulator".
+          files:
+            - cmd/server/main.go
+            - cmd/server-rest/main.go
+            - cmd/server-dual/main.go
+        - id: B
+          task: |
+            ## Improve PermissionDenied error messages in checkPermission
+
+            ### What to implement
+
+            In `internal/server/server.go`, update the `checkPermission` method to
+            produce detailed PermissionDenied errors that include:
+            - The principal that was denied
+            - The specific permission that was required
+            - The resource the permission was checked against
+
+            **Current code (line 84-85):**
+            ```go
+            if !allowed {
+                return status.Error(codes.PermissionDenied, "Permission denied")
+            }
+            ```
+
+            **New code:**
+            ```go
+            if !allowed {
+                displayPrincipal := principal
+                if displayPrincipal == "" {
+                    displayPrincipal = "(no principal)"
+                }
+                return status.Errorf(codes.PermissionDenied,
+                    "Permission denied: principal '%s' lacks '%s' on resource '%s'",
+                    displayPrincipal, permCheck.Permission, resource)
+            }
+            ```
+
+            The variables `principal`, `permCheck.Permission`, and `resource` are
+            already available in scope at that point in the function. No new imports
+            or structural changes are needed.
+
+            ### Interfaces
+            See interface contract `checkPermission` in the IMPL doc. The error
+            message format is:
+            "Permission denied: principal '<principal>' lacks '<permission>' on resource '<resource>'"
+            When no principal header is present, render as "(no principal)" not empty string.
+
+            ### Tests
+            Update or add a test in `internal/server/server_test.go` or
+            `server_coverage_test.go` that verifies the PermissionDenied error
+            message contains the principal, permission, and resource strings.
+            If no existing test covers checkPermission denial, add one.
+
+            Look at existing test patterns -- the project uses the standard
+            `testing` package. You may need to set up IAM mode for the test
+            (see how `emulatorauth` is configured in server.go NewServer).
+
+            ### Verification gate
+            ```bash
+            go build ./internal/server/...
+            go vet ./internal/server/...
+            go test ./internal/server/... -run TestPermission -v
+            ```
+
+            ### Constraints
+            - Do NOT change the function signature of checkPermission.
+            - Do NOT modify any other method in server.go.
+            - The error must use codes.PermissionDenied (not a different gRPC code).
+            - Keep the "IAM disabled, allow all" and "Unknown operation, allow"
+              early returns unchanged.
+            - **Error message format change is breaking** for callers doing exact string
+              match on "Permission denied". Add a note to CHANGELOG.md under v1.3.0
+              documenting the new error message format. Callers using
+              `strings.Contains(err.Error(), "Permission denied")` are unaffected.
+          files:
+            - internal/server/server.go
+        - id: C
+          task: |
+            ## Documentation improvements and standalone docker-compose
+
+            ### What to implement
+
+            **1. Add Table of Contents to docs/API-REFERENCE.md**
+
+            Insert a TOC after the opening "# API Reference" heading and before
+            the "## Overview" section. The file is ~1273 lines with many sections.
+            Generate the TOC from the existing ## and ### headings. Use markdown
+            link format:
+            ```
+            ## Table of Contents
+            - [Overview](#overview)
+            - [Protocol Selection](#protocol-selection)
+            - [Connection](#connection)
+              - [gRPC (Go Client)](#grpc-go-client)
+              ...
+            ```
+
+            Include all ## and ### level headings. Do not include #### or deeper.
+
+            **2. Add "For Contributors" audience note to docs/ARCHITECTURE.md**
+
+            Add a note immediately after the "# Architecture" heading and before
+            "## Overview":
+            ```
+            > **Audience:** This document is for contributors and maintainers.
+            > If you just want to use the emulator, see the [README](../README.md)
+            > and [API Reference](API-REFERENCE.md).
+            ```
+
+            **3. Add prerequisites line to README.md**
+
+            The README already has a Quick Start section. Add an explicit
+            prerequisites line just before or at the start of Quick Start.
+            Check that the README already has Docker-first Quick Start content
+            (it was added by a prior audit agent). If it does, just add:
+            ```
+            **Prerequisites:** Go 1.24+ or Docker
+            ```
+            right after the "## Quick Start" heading and before the first
+            code block. If the Docker-first content is missing, do NOT add it
+            (that is out of scope).
+
+            **4. Create docker-compose.standalone.yml**
+
+            Create a simple standalone docker-compose file for users who just
+            want the emulator without IAM. Keep it minimal (~6-10 lines):
+            ```yaml
+            services:
+              secret-manager:
+                image: ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+                ports:
+                  - "9090:9090"
+                  - "8080:8080"
+            ```
+            No IAM services, no profiles, no healthchecks. Just the emulator.
+
+            ### Interfaces
+            No cross-agent interfaces. All changes are documentation or config.
+
+            ### Tests
+            No tests needed for documentation changes. Verify the
+            docker-compose.standalone.yml is valid YAML.
+
+            ### Verification gate
+            ```bash
+            # Verify YAML is valid
+            python3 -c "import yaml; yaml.safe_load(open('docker-compose.standalone.yml'))" 2>/dev/null || echo "YAML check skipped (no pyyaml)"
+            # Verify markdown files are not empty
+            test -s docs/API-REFERENCE.md && test -s docs/ARCHITECTURE.md && test -s README.md && echo "OK"
+            ```
+
+            ### Constraints
+            - Do NOT modify the existing docker-compose.yml file.
+            - Do NOT add Python/Node examples or SECRETMANAGER_EMULATOR_HOST content
+              to README if it already exists (check first -- a prior audit agent
+              may have added it).
+            - Keep the standalone docker-compose minimal. No build context, no
+              environment variables, no healthchecks.
+          files:
+            - docs/API-REFERENCE.md
+            - docs/ARCHITECTURE.md
+            - README.md
+            - docker-compose.standalone.yml
+      base_commit: 79dbb5ab3491f81dd4f7705313d2de2c7f64839c
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+completion_reports:
+    A:
+        status: complete
+        branch: saw/new-user-experience/wave1-agent-A
+        commit: f1bd0a1
+        files_changed:
+            - cmd/server/main.go
+            - cmd/server-rest/main.go
+            - cmd/server-dual/main.go
+            - CHANGELOG.md
+        verification: PASS
+    B:
+        status: complete
+        branch: saw/new-user-experience/wave1-agent-B
+        commit: 98bde55
+        files_changed:
+            - internal/server/server.go
+            - internal/server/server_test.go
+            - CHANGELOG.md
+        tests_added:
+            - TestPermissionDenied_ErrorMessageFormat
+            - TestPermissionDenied_NoPrincipal
+        verification: PASS
+    C:
+        status: complete
+        branch: saw/new-user-experience/wave1-agent-C
+        commit: 517fa32
+        files_changed:
+            - README.md
+            - docs/API-REFERENCE.md
+            - docs/ARCHITECTURE.md
+            - docker-compose.standalone.yml
+        files_created:
+            - docker-compose.standalone.yml
+        verification: PASS
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agent B test for PermissionDenied requires IAM emulator setup in tests
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent B should check existing test patterns for IAM mode configuration.
+            If no IAM test infrastructure exists, the agent can mock the iamClient
+            field directly on the Server struct or use a test helper.
+        - scenario: README already has prerequisites from prior audit agent
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent C is instructed to check before adding. If prerequisites already
+            exist, skip that sub-task.
+        - scenario: API-REFERENCE.md TOC links have anchor mismatches
+          likelihood: low
+          impact: low
+          mitigation: |
+            Use standard GitHub markdown anchor generation rules (lowercase,
+            hyphens for spaces, strip special chars). Test by visual inspection.
+critic_report:
+    verdict: ISSUES
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: ISSUES
+            issues:
+                - check: side_effect_completeness
+                  severity: warning
+                  description: Agent B task instructs adding/updating tests in internal/server/server_test.go or server_coverage_test.go, but neither test file is listed in file_ownership. Agent B only owns internal/server/server.go. The test file that Agent B will modify should be added to file_ownership.
+                  file: internal/server/server_test.go
+        C:
+            agent_id: C
+            verdict: PASS
+    summary: 'All file existence checks pass. Symbol accuracy is confirmed for all three agents. Agent B has a side-effect completeness issue: the task instructs the agent to add or update tests in server_test.go or server_coverage_test.go, but neither file is listed in the file_ownership table. This means Agent B would modify files it does not own. Since no other agent owns those files either, this is a warning rather than a blocking error, but the file_ownership table should be updated to include the test file Agent B will modify.'
+    reviewed_at: "2026-03-21T19:36:35Z"
+    issue_count: 1
+state: REVIEWED

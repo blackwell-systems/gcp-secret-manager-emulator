@@ -77,10 +77,10 @@ These features are explicitly out of scope:
 - Emulator is designed for testing only
 - Use real GCP Secret Manager for production
 
-**IAM Methods**
+**Per-Resource IAM Methods**
 - SetIamPolicy, GetIamPolicy, TestIamPermissions
-- Not needed for testing (no authentication by design)
-- Would add complexity without real benefit
+- Authorization is handled via the IAM Emulator control plane instead
+- Per-resource policy storage would add complexity without real benefit
 
 **Encryption at Rest**
 - In-memory storage is intentionally plaintext

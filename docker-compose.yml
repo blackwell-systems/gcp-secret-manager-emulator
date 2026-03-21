@@ -25,8 +25,8 @@ services:
       - "9090:9090"  # gRPC
       - "8081:8080"  # REST (avoid conflict with IAM)
     environment:
-      - GCP_SECRET_MANAGER_GRPC_PORT=9090
-      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - GCP_MOCK_GRPC_PORT=9090
+      - GCP_MOCK_HTTP_PORT=8080
       - IAM_MODE=permissive
       - IAM_HOST=iam-emulator:8080
     depends_on:
@@ -44,8 +44,8 @@ services:
       - "9091:9090"  # gRPC
       - "8082:8080"  # REST
     environment:
-      - GCP_SECRET_MANAGER_GRPC_PORT=9090
-      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - GCP_MOCK_GRPC_PORT=9090
+      - GCP_MOCK_HTTP_PORT=8080
       - IAM_MODE=strict
       - IAM_HOST=iam-emulator:8080
     depends_on:
@@ -65,8 +65,8 @@ services:
       - "9092:9090"  # gRPC
       - "8083:8080"  # REST
     environment:
-      - GCP_SECRET_MANAGER_GRPC_PORT=9090
-      - GCP_SECRET_MANAGER_HTTP_PORT=8080
+      - GCP_MOCK_GRPC_PORT=9090
+      - GCP_MOCK_HTTP_PORT=8080
       - IAM_MODE=off
     profiles:
       - legacy

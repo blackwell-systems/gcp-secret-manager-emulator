@@ -6,7 +6,7 @@ This project is a **testing emulator** designed for local development and CI/CD 
 
 ## Security Features
 
-- No authentication by design (testing-only tool)
+- No authentication by default (optional IAM enforcement available via IAM Emulator)
 - In-memory storage (no persistent data)
 - No network encryption (local gRPC only)
 - Runs as non-root user in Docker container

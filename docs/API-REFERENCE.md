@@ -787,7 +787,7 @@ SetIamPolicy, GetIamPolicy, TestIamPermissions.
 
 **Status:** Not implemented
 
-**Rationale:** Emulator has no authentication - all requests succeed
+**Rationale:** This emulator uses the IAM Emulator as a centralized control plane for authorization instead of per-resource IAM policies. See README for IAM integration details.
 
 **Use Case:** Access control testing
 
@@ -1100,8 +1100,8 @@ replication := &secretmanagerpb.Replication{
 
 | Feature | Real GCP | Emulator |
 |---------|----------|----------|
-| Authentication | IAM, service accounts | None (all requests succeed) |
-| Authorization | IAM policies | None (no permission checks) |
+| Authentication | IAM, service accounts | None (no credentials required) |
+| Authorization | IAM policies | Optional (via IAM Emulator, off by default) |
 | Encryption | KMS, customer keys | None (in-memory plaintext) |
 | Replication | Multi-region | None (single in-memory store) |
 | Persistence | Durable storage | None (data lost on restart) |
@@ -1132,7 +1132,10 @@ Test your application logic without network calls:
 ```go
 func TestSecretRetrieval(t *testing.T) {
     // Start emulator in-process for tests
-    server := server.NewServer()
+    server, err := server.NewServer()
+    if err != nil {
+        t.Fatal(err)
+    }
 
     // Create test secret
     server.Storage().CreateSecret(ctx, "projects/test", "my-secret", &secretmanagerpb.Secret{
@@ -1315,7 +1318,7 @@ curl "http://localhost:8080/v1/projects/my-project/secrets/api-key/versions/1:ac
 
 Want to contribute? See [MAINTAINERS.md](../MAINTAINERS.md) for contact info.
 
-The emulator implements 11 of 12 Secret Manager methods (92% coverage). Only IAM methods remain unimplemented by design.
+The emulator implements all 12 core Secret Manager methods. Only per-resource IAM methods (SetIamPolicy, GetIamPolicy, TestIamPermissions) remain unimplemented by design.
 
 ## References
 

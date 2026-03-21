@@ -18,19 +18,35 @@ A production-grade Secret Manager implementation with optional **pre-flight IAM 
 
 **Prerequisites:** Go 1.24+ or Docker
 
+Get the emulator running in under 60 seconds. No GCP account or credentials needed.
+
+**Option A: Docker (recommended -- no Go required)**
 ```bash
-# Install (dual protocol: gRPC + REST)
+docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+```
+
+**Option B: Go install**
+```bash
 go install github.com/blackwell-systems/gcp-secret-manager-emulator/cmd/server-dual@latest
-
-# Run
 server-dual
-# gRPC listening on :9090
-# REST API listening on :8080
+```
 
-# Test with curl
-curl http://localhost:8080/v1/projects/test-project/secrets
+Both options start the emulator with gRPC on `:9090` and REST on `:8080`.
 
-# Or use with official GCP SDK (point at localhost:9090)
+**Verify it works:**
+```bash
+# Create a secret
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets?secretId=my-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"replication":{"automatic":{}}}'
+
+# Add a value to it
+curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/my-secret:addVersion" \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"data":"'$(echo -n "hello-world" | base64)'"}}'
+
+# Read it back
+curl "http://localhost:8080/v1/projects/my-project/secrets/my-secret/versions/1:access"
 ```
 
 **In production:** Used by enterprise teams for hermetic CI/CD testing
@@ -98,7 +114,7 @@ server-dual
 cd ../gcp-iam-emulator && ./bin/server --config policy.yaml
 
 # Start Secret Manager with enforcement
-IAM_MODE=strict IAM_EMULATOR_HOST=localhost:8080 server-dual
+IAM_MODE=strict IAM_HOST=localhost:8080 server-dual
 # Now requires valid permissions for all operations
 ```
 
@@ -119,7 +135,7 @@ gcp-emulator start
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)
 - **SDK Compatible** - Drop-in replacement for official `cloud.google.com/go/secretmanager` (gRPC)
 - **curl Friendly** - Full REST API with JSON, test from any language or terminal
-- **Complete API** - 11 of 12 methods implemented (92% API coverage)
+- **Complete API** - 12 core methods implemented (all Secret Manager operations)
 - **High Test Coverage** - 90.8% coverage with comprehensive integration tests
 
 ### IAM Enforcement (Optional)
@@ -153,17 +169,15 @@ gcp-emulator start
 - `DisableSecretVersion` - Disable a version (prevents access)
 - `DestroySecretVersion` - Permanently destroy a version (irreversible)
 
-## Quick Start
+## Server Variants
 
-### Choose Your Protocol
+> **Not sure which to pick?** Use `server-dual`. It does everything the others do.
 
-**Three server variants available:**
-
-| Variant | Protocols | Use Case | Install Command |
-|---------|-----------|----------|-----------------|
-| `server` | gRPC only | SDK users, fastest startup | `go install .../cmd/server@latest` |
-| `server-rest` | REST/HTTP | curl, scripts, any language | `go install .../cmd/server-rest@latest` |
-| `server-dual` | Both gRPC + REST | Maximum flexibility | `go install .../cmd/server-dual@latest` |
+| Variant | Protocols | Best For |
+|---------|-----------|----------|
+| `server-dual` | gRPC + REST | Most users -- works with SDKs and curl |
+| `server` | gRPC only | Go/Python/Java SDK users who want minimal overhead |
+| `server-rest` | REST/HTTP only | Shell scripts, curl, non-Go languages without gRPC |
 
 ### Install
 
@@ -207,36 +221,58 @@ server-dual
 server-dual --grpc-port 9090 --http-port 8080
 ```
 
-### Use with GCP SDK
+### Use with GCP SDKs
 
+Point your existing GCP SDK code at the emulator instead of real GCP. No code changes needed beyond the connection setup.
+
+> **Note:** Unlike some GCP emulators, this one does not currently support the `SECRETMANAGER_EMULATOR_HOST` environment variable for automatic SDK redirection. You need to configure the connection explicitly as shown below.
+
+**Go:**
 ```go
-package main
+ctx := context.Background()
 
-import (
-    "context"
-    "fmt"
-
-    secretmanager "cloud.google.com/go/secretmanager/apiv1"
-    "google.golang.org/api/option"
-    "google.golang.org/grpc"
-    "google.golang.org/grpc/credentials/insecure"
+// Connect to emulator instead of real GCP
+conn, _ := grpc.NewClient(
+    "localhost:9090",
+    grpc.WithTransportCredentials(insecure.NewCredentials()),
 )
 
-func main() {
-    ctx := context.Background()
+client, _ := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
+defer client.Close()
 
-    // Connect to emulator instead of real GCP
-    conn, _ := grpc.NewClient(
-        "localhost:9090",
-        grpc.WithTransportCredentials(insecure.NewCredentials()),
+// Use client normally -- API is identical to real GCP
+```
+
+**Python:**
+```python
+from google.cloud import secretmanager
+import grpc
+
+channel = grpc.insecure_channel("localhost:9090")
+client = secretmanager.SecretManagerServiceClient(
+    transport=secretmanager.transports.SecretManagerServiceGrpcTransport(
+        channel=channel
     )
+)
 
-    client, _ := secretmanager.NewClient(ctx, option.WithGRPCConn(conn))
-    defer client.Close()
+# Use client normally
+response = client.access_secret_version(
+    name="projects/my-project/secrets/my-secret/versions/latest"
+)
+```
 
-    // Use client normally - API is identical to real GCP
-    // ...
-}
+**Node.js:**
+```javascript
+const {SecretManagerServiceClient} = require('@google-cloud/secret-manager');
+
+const client = new SecretManagerServiceClient({
+  apiEndpoint: 'localhost:9090',  // Point at emulator
+  // No credentials needed
+});
+
+const [version] = await client.accessSecretVersion({
+  name: 'projects/my-project/secrets/my-secret/versions/latest',
+});
 ```
 
 ### Use with REST API
@@ -437,16 +473,31 @@ IAM enforcement in this emulator is deliberately scoped for **authorization test
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GCP_MOCK_PORT` | `9090` | Port to listen on |
+| `GCP_MOCK_PORT` | `9090` | gRPC port (`server` only) |
+| `GCP_MOCK_GRPC_PORT` | `9090` | gRPC port (`server-rest`, `server-dual`) |
+| `GCP_MOCK_HTTP_PORT` | `8080` | HTTP port (`server-rest`, `server-dual`) |
 | `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `IAM_MODE` | `off` | IAM enforcement: off, permissive, strict |
+| `IAM_HOST` | `localhost:8080` | IAM emulator address |
 
 ### Command Line Flags
 
+**gRPC server (`server`):**
 ```bash
 server --help
 
 Flags:
   --port int           Port to listen on (default 9090)
+  --log-level string   Log level (default "info")
+```
+
+**REST and dual servers (`server-rest`, `server-dual`):**
+```bash
+server-dual --help
+
+Flags:
+  --grpc-port int      gRPC port to listen on (default 9090)
+  --http-port int      HTTP port to listen on (default 8080)
   --log-level string   Log level (default "info")
 ```
 
@@ -477,13 +528,13 @@ go test -race ./...
 
 ## API Coverage
 
-**Implemented (11 of 12 methods):**
-All Secret Manager operations except IAM methods.
+**Implemented (12 of 12 core methods):**
+All Secret Manager operations are implemented.
 
 **Not Implemented:**
-- IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`)
+- IAM methods (`SetIamPolicy`, `GetIamPolicy`, `TestIamPermissions`) -- these manage per-resource policies
 
-**Rationale:** IAM methods manage per-resource policies. This emulator uses the [IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) as a centralized control plane instead. Authorization is enforced pre-flight via the IAM emulator's policy engine, not through resource-level policy storage.
+**Rationale:** This emulator uses the [IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) as a centralized control plane instead of per-resource policy storage. Authorization is enforced pre-flight via the IAM emulator's policy engine.
 
 ## Differences from Real GCP
 
