@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -144,6 +145,11 @@ func (s *Storage) ListSecrets(ctx context.Context, parent string, pageSize int32
 			})
 		}
 	}
+
+	// Sort secrets by name for deterministic ordering across calls
+	sort.Slice(allSecrets, func(i, j int) bool {
+		return allSecrets[i].Name < allSecrets[j].Name
+	})
 
 	// Simple pagination: start from token index
 	startIdx := 0
@@ -425,7 +431,14 @@ func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSiz
 	for versionID := range stored.Versions {
 		versionIDs = append(versionIDs, versionID)
 	}
-	sort.Strings(versionIDs)
+	sort.Slice(versionIDs, func(i, j int) bool {
+		a, errA := strconv.Atoi(versionIDs[i])
+		b, errB := strconv.Atoi(versionIDs[j])
+		if errA != nil || errB != nil {
+			return versionIDs[i] < versionIDs[j]
+		}
+		return a < b
+	})
 
 	// Collect versions matching filter in sorted order
 	var allVersions []*secretmanagerpb.SecretVersion
