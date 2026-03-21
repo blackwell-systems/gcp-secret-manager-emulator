@@ -1,0 +1,376 @@
+completion_date: "2026-03-21"
+title: 'Bug Fixes: Gateway principal injection, README env var, ListSecrets ordering, ListSecretVersions numeric sort'
+feature_slug: bug-fixes
+verdict: SUITABLE
+suitability_assessment: |
+    All four bugs have disjoint file ownership across three files:
+    internal/gateway/gateway.go, README.md, and internal/server/storage.go.
+    Bugs 3 and 4 both touch storage.go but are co-located in the same function
+    region (ListSecrets and ListSecretVersions respectively), so they are assigned
+    to a single agent (B) to avoid a same-file conflict.
+
+    File decomposition: 3 distinct files, 3 agents, fully disjoint.
+    Investigation-first items: none — root causes are clearly identified.
+    Interface discoverability: all contracts are known (gcp-emulator-auth API is
+    already published; sort pattern is already present in resolveLatestVersion).
+    Pre-implementation status: all four bugs are confirmed TODO in the current codebase.
+    Parallelization value: high — Agent A (gateway injection) and Agent B (storage
+    sort fixes) and Agent C (README) are fully independent and can run in parallel
+    in Wave 1. Build/test cycle (go test ./...) is non-trivial for a gRPC project.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~3 agents x ~10 min avg = ~10 min wall time (parallel)
+    - Merge and verification: ~3 min
+    Total SAW time: ~21 min
+    Sequential baseline: 3 x 10 min = 30 min
+    Time savings: ~9 min (30% faster)
+    Recommendation: Clear speedup. Proceed.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/gateway/gateway.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/gateway/gateway_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/server/storage.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/server/storage_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: README.md
+      agent: C
+      wave: 1
+      action: modify
+interface_contracts:
+    - name: ExtractPrincipalFromRequest
+      description: Extracts the X-Emulator-Principal header value from an HTTP request. Provided by the gcp-emulator-auth library.
+      definition: |
+        func ExtractPrincipalFromRequest(r *http.Request) string
+        // import: github.com/blackwell-systems/gcp-emulator-auth
+      location: internal/gateway/gateway.go
+    - name: InjectPrincipalToContext
+      description: Injects the principal string as gRPC outgoing metadata on the context. Provided by the gcp-emulator-auth library.
+      definition: |
+        func InjectPrincipalToContext(ctx context.Context, principal string) context.Context
+        // import: github.com/blackwell-systems/gcp-emulator-auth
+      location: internal/gateway/gateway.go
+    - name: numericVersionSort
+      description: |-
+        Numeric sort for version ID strings ("1","2","10" → "1","2","10").
+        Replaces sort.Strings(versionIDs) in ListSecretVersions.
+        Uses strconv.Atoi for conversion; falls back to lexicographic on parse error.
+      definition: |
+        sort.Slice(versionIDs, func(i, j int) bool {
+            a, errA := strconv.Atoi(versionIDs[i])
+            b, errB := strconv.Atoi(versionIDs[j])
+            if errA != nil || errB != nil {
+                return versionIDs[i] < versionIDs[j]
+            }
+            return a < b
+        })
+      location: internal/server/storage.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Bug 1: REST gateway silently drops X-Emulator-Principal header
+
+            ### What to implement
+            In `internal/gateway/gateway.go`, the `handleRequest` method currently
+            assigns `ctx := r.Context()` and passes that context directly to all
+            downstream handler calls. The `X-Emulator-Principal` HTTP header is
+            never extracted and never injected into the gRPC outgoing metadata,
+            so the gRPC server never sees who is making the request.
+
+            The fix is a single extraction + injection in `handleRequest`, before
+            any routing logic executes:
+
+            ```go
+            import emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
+
+            func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
+                ctx := r.Context()
+                if principal := emulatorauth.ExtractPrincipalFromRequest(r); principal != "" {
+                    ctx = emulatorauth.InjectPrincipalToContext(ctx, principal)
+                }
+                // ... rest of routing unchanged, using ctx
+            ```
+
+            Do NOT modify each individual handler method. The single injection
+            point in `handleRequest` propagates to all handlers because they all
+            receive `ctx` as a parameter that originates from this one place.
+
+            The import alias `emulatorauth` matches usage elsewhere in the project
+            (check other files). If no alias is used elsewhere, use the bare package
+            name `emulatorauth` for clarity.
+
+            The library is already in go.mod:
+            `github.com/blackwell-systems/gcp-emulator-auth v0.3.0`
+
+            ### Tests to write
+            Add a test in `internal/gateway/gateway_test.go` named
+            `TestHandleRequest_PrincipalHeaderPropagation` that:
+            1. Starts the test gRPC+HTTP stack using `startTestGateway`.
+            2. Sends an HTTP GET to any endpoint (e.g., `/v1/projects/test/secrets`)
+               with header `X-Emulator-Principal: user:test@example.com`.
+            3. Asserts the response is not a 500 (the request reaches the server).
+            4. Optionally: if the gRPC server can be instrumented to echo back the
+               principal from metadata, assert it is present.
+
+            If adding a metadata-echo to the test server is too invasive, a
+            simpler test that confirms the header does not cause errors is
+            acceptable. The key thing is proving the path compiles and runs
+            without panicking.
+
+            ### Verification gate
+            ```
+            go build ./internal/gateway/...
+            go vet ./internal/gateway/...
+            go test ./internal/gateway/... -run TestHandleRequest
+            ```
+
+            ### Constraints
+            - Do not modify any handler method signatures.
+            - Do not add a new helper function; keep the change inside `handleRequest`.
+            - The injection must be conditional (`if principal != ""`); do not
+              inject an empty string as metadata.
+            - Import the library as `emulatorauth` (or the bare package name if
+              the module path's last segment is unambiguous).
+          files:
+            - internal/gateway/gateway.go
+            - internal/gateway/gateway_test.go
+        - id: B
+          task: |
+            ## Bugs 3 and 4: ListSecrets non-deterministic ordering + ListSecretVersions lexicographic sort
+
+            Both bugs are in `internal/server/storage.go`. Fix them together.
+
+            ---
+
+            ### Bug 3: ListSecrets non-deterministic ordering
+
+            `ListSecrets` (line ~136) iterates `s.secrets` map directly before
+            paginating by index. Map iteration order in Go is randomized per-run.
+            This means the same pageToken can return different secrets on
+            consecutive calls, producing duplicates or skipped entries.
+
+            `ListSecretVersions` already demonstrates the correct pattern: collect
+            keys, sort them, then iterate in sorted order.
+
+            **Fix:** After collecting all matching secrets into `allSecrets`, sort
+            them by name before applying pagination:
+
+            ```go
+            sort.Slice(allSecrets, func(i, j int) bool {
+                return allSecrets[i].Name < allSecrets[j].Name
+            })
+            ```
+
+            Place this sort immediately after the for-range loop that populates
+            `allSecrets`, before the `startIdx` pagination logic.
+
+            The `sort` package is already imported.
+
+            ---
+
+            ### Bug 4: ListSecretVersions uses lexicographic sort (breaks for version >= 10)
+
+            `ListSecretVersions` (line ~428) calls `sort.Strings(versionIDs)` which
+            sorts version ID strings lexicographically. This produces the wrong
+            order for version numbers >= 10: "1", "10", "2" instead of "1", "2", "10".
+
+            `resolveLatestVersion` already uses numeric comparison (`fmt.Sscanf`)
+            as the correct reference implementation.
+
+            **Fix:** Replace `sort.Strings(versionIDs)` with a numeric sort using
+            `sort.Slice` and `strconv.Atoi`:
+
+            ```go
+            sort.Slice(versionIDs, func(i, j int) bool {
+                a, errA := strconv.Atoi(versionIDs[i])
+                b, errB := strconv.Atoi(versionIDs[j])
+                if errA != nil || errB != nil {
+                    return versionIDs[i] < versionIDs[j]
+                }
+                return a < b
+            })
+            ```
+
+            Add `"strconv"` to the import block. The `sort` package is already
+            imported.
+
+            ---
+
+            ### Tests to write
+
+            **For Bug 3** — add `TestListSecrets_DeterministicOrdering` in
+            `internal/server/storage_test.go` (or a new file if no storage_test.go
+            exists):
+            1. Create a storage instance.
+            2. Add 5+ secrets with names that would sort differently than insertion
+               order (e.g., "z-secret", "a-secret", "m-secret").
+            3. Call `ListSecrets` twice with no pageToken.
+            4. Assert both calls return secrets in the same alphabetical order.
+            5. Assert the first result is the lexicographically smallest secret name.
+
+            **For Bug 4** — add `TestListSecretVersions_NumericOrdering` in the
+            same test file:
+            1. Create a storage instance, create one secret.
+            2. Add 12 versions (to ensure version numbers 10+ exist).
+            3. Call `ListSecretVersions`.
+            4. Assert the returned versions are in order 1, 2, 3, ..., 10, 11, 12
+               (not 1, 10, 11, 12, 2, 3, ...).
+
+            ### Verification gate
+            ```
+            go build ./internal/server/...
+            go vet ./internal/server/...
+            go test ./internal/server/... -run TestListSecrets_DeterministicOrdering
+            go test ./internal/server/... -run TestListSecretVersions_NumericOrdering
+            ```
+
+            ### Constraints
+            - Do not change function signatures.
+            - Do not alter the pagination logic — only the sort before pagination.
+            - Use `strconv.Atoi` (not `fmt.Sscanf`) for numeric version parsing,
+              consistent with the stdlib numeric sort pattern.
+            - The fallback to lexicographic sort in the `errA != nil || errB != nil`
+              branch is required for defensive correctness.
+          files:
+            - internal/server/storage.go
+        - id: C
+          task: |
+            ## Bug 2: README documents wrong IAM env var
+
+            The README.md documents `IAM_HOST` as the environment variable for the
+            IAM emulator address. The `gcp-emulator-auth` library reads
+            `IAM_EMULATOR_HOST`. All five occurrences of `IAM_HOST` in README.md
+            must be updated to `IAM_EMULATOR_HOST`.
+
+            ### Locations to update (by line number at time of scouting)
+            - Line 117: `IAM_MODE=strict IAM_HOST=localhost:8080 server-dual`
+            - Line 395: `- \`IAM_HOST\` - IAM emulator address (default: \`localhost:8080\`)`
+            - Line 406: `IAM_MODE=permissive IAM_HOST=localhost:8080 server-dual`
+            - Line 411: `IAM_MODE=strict IAM_HOST=localhost:8080 server-dual`
+            - Line 481: `| \`IAM_HOST\` | \`localhost:8080\` | IAM emulator address |`
+
+            ### What to change
+            Replace every occurrence of `IAM_HOST` with `IAM_EMULATOR_HOST`
+            throughout README.md. Do a global search-and-replace to ensure no
+            occurrences are missed; the exact line numbers above are a guide but
+            may shift if the file was edited.
+
+            Do NOT change `IAM_MODE`, `IAM_EMULATOR_HOST` (already correct if
+            present), or any other env var references.
+
+            ### Tests
+            No automated tests for documentation. After editing, verify manually:
+            ```
+            grep -n "IAM_HOST" README.md
+            ```
+            This should return zero results (all occurrences replaced).
+            ```
+            grep -n "IAM_EMULATOR_HOST" README.md
+            ```
+            This should return 5+ results.
+
+            ### Verification gate
+            ```
+            grep -c "IAM_HOST" README.md  # must output 0
+            grep -c "IAM_EMULATOR_HOST" README.md  # must output >= 5
+            ```
+
+            ### Constraints
+            - README.md only. Do not modify docker-compose.yml, CHANGELOG.md,
+              or any other file.
+            - Do not reformat, reorder, or rewrite any surrounding prose.
+            - Replace the exact string `IAM_HOST` only where it appears as a
+              standalone env var name, not as a substring of something else
+              (grep confirms there are no false-positive substrings in this file).
+          files:
+            - README.md
+      base_commit: 937c52dc45bf220725b5443239ca0e44e41fcf3b
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+completion_reports:
+    A:
+        status: complete
+        branch: saw/bug-fixes/wave1-agent-A
+        commit: efbe21c
+        files_changed:
+            - internal/gateway/gateway.go
+            - internal/gateway/gateway_test.go
+        tests_added:
+            - TestHandleRequest_PrincipalHeaderPropagation
+        verification: PASS
+    B:
+        status: complete
+        branch: saw/bug-fixes/wave1-agent-B
+        commit: f9be847
+        files_changed:
+            - internal/server/storage.go
+            - internal/server/storage_test.go
+        tests_added:
+            - TestListSecrets_DeterministicOrdering
+            - TestListSecretVersions_NumericOrdering
+        verification: PASS
+    C:
+        status: complete
+        branch: saw/bug-fixes/wave1-agent-C
+        commit: 47b3231
+        files_changed:
+            - README.md
+        verification: PASS
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agent A imports gcp-emulator-auth with wrong package alias causing compile error
+          likelihood: low
+          impact: low
+          mitigation: |-
+            The library's Go package name is `emulatorauth` (last path segment of
+            github.com/blackwell-systems/gcp-emulator-auth). Use bare import without
+            alias; Go will bind it as `emulatorauth`. If there is a name collision,
+            use an explicit alias. The go.mod entry confirms the dependency is already
+            present — no `go get` needed.
+        - scenario: Agent B introduces a regression in ListSecretVersions pagination by misplacing the sort
+          likelihood: low
+          impact: medium
+          mitigation: |-
+            The sort must be placed AFTER the versionIDs slice is fully populated
+            and BEFORE the filtering loop. The existing code structure is clear;
+            the only change is replacing one line (`sort.Strings(versionIDs)`) with
+            a `sort.Slice` block. The test for version >= 10 ordering catches this.
+        - scenario: Agent C misses one IAM_HOST occurrence or changes IAM_EMULATOR_HOST back
+          likelihood: low
+          impact: low
+          mitigation: |-
+            The verification gate (`grep -c "IAM_HOST" README.md` must be 0) will
+            catch any missed occurrence. The agent prompt lists all 5 known line
+            numbers as a reference.
+        - scenario: go vet fails due to unused import after Agent A's edit
+          likelihood: low
+          impact: low
+          mitigation: |-
+            Agent A must add the emulatorauth import AND use it. The conditional
+            injection uses both functions. The build gate catches this immediately.
+state: "COMPLETE"
