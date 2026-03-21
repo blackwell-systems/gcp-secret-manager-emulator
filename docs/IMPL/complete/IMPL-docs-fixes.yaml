@@ -1,0 +1,615 @@
+completion_date: "2026-03-21"
+title: Documentation Audit Fixes
+feature_slug: docs-fixes
+verdict: SUITABLE
+suitability_assessment: |
+    All 24 findings are pre-confirmed against the codebase. Every finding maps to a specific
+    file with a well-understood correction. The 7 affected files are fully disjoint across
+    7 agents, enabling a single-wave parallel run with no inter-agent dependencies.
+
+    File decomposition: 7 distinct files, one agent each — ownership is completely disjoint.
+    No shared types, no interface contracts, no cross-agent coordination required.
+
+    Investigation status: all findings are documentation corrections (wrong env var names,
+    stale version numbers, missing table entries, broken anchors). No root-cause analysis needed.
+
+    Parallelization value: moderate. The full Go test suite (go test ./...) takes a few seconds,
+    but the docs changes themselves are fast. The value here is primarily coordination — each
+    agent gets a focused, precise brief, reducing the chance of incomplete fixes or missed
+    sub-findings.
+
+    Estimated times:
+    - Scout phase: ~8 min (reading 8 files, mapping 24 findings to 7 agents)
+    - Agent execution: ~5 min avg per agent x 7 agents in parallel = ~5 min wall-clock
+    - Merge and verification: ~3 min
+    Total SAW time: ~16 min
+
+    Sequential baseline: ~35 min (7 agents x 5 min each)
+    Time savings: ~19 min (54% faster)
+
+    Recommendation: Clear speedup. All 7 agents are fully independent; single-wave parallel
+    execution is the optimal path.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: docker-compose.yml
+      agent: A
+      wave: 1
+      action: modify
+    - file: docs/CHANGELOG.md
+      agent: B
+      wave: 1
+      action: modify
+    - file: docs/README.md
+      agent: C
+      wave: 1
+      action: modify
+    - file: docs/ROADMAP.md
+      agent: D
+      wave: 1
+      action: modify
+    - file: docs/ARCHITECTURE.md
+      agent: E
+      wave: 1
+      action: modify
+    - file: docs/API-REFERENCE.md
+      agent: F
+      wave: 1
+      action: modify
+    - file: docs/_sidebar.md
+      agent: G
+      wave: 1
+      action: modify
+    - file: docs/index.html
+      agent: G
+      wave: 1
+      action: modify
+interface_contracts: []
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A — docker-compose.yml: env var rename + deprecation removal
+
+            ### Files owned
+            - `docker-compose.yml`
+
+            ### What to implement
+
+            **Finding 1 — IAM_HOST → IAM_EMULATOR_HOST (lines 31 and 50)**
+
+            The `secret-manager-emulator` service (line 31) and the `secret-manager-strict`
+            service (line 50) both declare `IAM_HOST=iam-emulator:8080`. The
+            `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`, not `IAM_HOST`. This
+            is a silent runtime bug: IAM enforcement appears to start but the host is never
+            set, so enforcement silently fails.
+
+            Change both occurrences:
+            ```
+            - IAM_HOST=iam-emulator:8080
+            ```
+            to:
+            ```
+            - IAM_EMULATOR_HOST=iam-emulator:8080
+            ```
+
+            The `secret-manager-legacy` service uses `IAM_MODE=off` and has no
+            IAM_HOST/IAM_EMULATOR_HOST entry — leave it unchanged.
+
+            **Finding 24 — Remove deprecated `version: '3.8'` key (line 1)**
+
+            Docker Compose v2 ignores the `version:` key and emits a deprecation warning.
+            Remove the `version: '3.8'` line entirely (along with the blank line that
+            follows it, if it leaves a leading blank line at the top of the file).
+
+            The resulting file should start directly with `services:`.
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `grep "IAM_HOST" docker-compose.yml` must produce zero lines.
+            3. `grep "^version:" docker-compose.yml` must produce zero lines.
+            4. Manual spot-check: confirm `IAM_EMULATOR_HOST=iam-emulator:8080` appears
+               exactly twice in docker-compose.yml (once per service).
+
+            ### Constraints
+            - Do not modify any Go source files.
+            - Do not change any other environment variable names or values.
+            - Do not reorder services.
+            - Do not alter healthcheck, ports, depends_on, profiles, or build args.
+          files:
+            - docker-compose.yml
+        - id: B
+          task: |
+            ## Agent B — docs/CHANGELOG.md: sync to root CHANGELOG
+
+            ### Files owned
+            - `docs/CHANGELOG.md`
+
+            ### What to implement
+
+            The `docs/CHANGELOG.md` is a mirror of the root `CHANGELOG.md` but is 4 versions
+            behind and contains several errors. The simplest correct fix is to replace
+            `docs/CHANGELOG.md` entirely with the content of the root `CHANGELOG.md`.
+
+            **Specific problems in the current docs/CHANGELOG.md:**
+            - Finding 2: Line 15 says `IAM_HOST` — should say `IAM_EMULATOR_HOST`
+            - Finding 3: Missing v1.2.1, v1.2.2, v1.3.0 entries; [Unreleased] section is empty
+            - Finding 4: Line 39 says `gcp-emulator-auth v0.0.0-20260126234751-6976d522b21f`
+              (a pseudo-version hash). The root CHANGELOG accurately records what version was
+              in use at the time of each release.
+
+            **Action:** Copy the full content of `/CHANGELOG.md` (root) verbatim into
+            `docs/CHANGELOG.md`. This is a wholesale replacement, not a patch. The root
+            file is the canonical source of truth for this repository and is already correct.
+
+            After replacement, verify:
+            - `grep "IAM_HOST" docs/CHANGELOG.md` returns only lines that correctly say
+              `IAM_EMULATOR_HOST` (the v1.2.0 entry should now read `IAM_EMULATOR_HOST`
+              per the root CHANGELOG)
+            - The [Unreleased] section contains the gateway X-Emulator-Principal fix,
+              ListSecretVersions numeric sort, ListSecrets alphabetical order, and
+              IAM_HOST→IAM_EMULATOR_HOST rename entries
+            - v1.3.0, v1.2.2, v1.2.1 entries are present
+            - Reference links at the bottom go up to v1.3.0...HEAD
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `diff /CHANGELOG.md docs/CHANGELOG.md` should produce no output (files identical).
+               Adjust path to repo root as needed.
+            3. `grep "IAM_HOST[^_]" docs/CHANGELOG.md` must return 0 lines (no bare IAM_HOST
+               without the _EMULATOR suffix).
+
+            ### Constraints
+            - Do not modify the root CHANGELOG.md.
+            - Do not modify any Go source files.
+            - The docs/CHANGELOG.md must be byte-for-byte identical to root CHANGELOG.md
+              after this change.
+          files:
+            - docs/CHANGELOG.md
+        - id: C
+          task: |
+            ## Agent C — docs/README.md: env var table, API coverage, IAM claims
+
+            ### Files owned
+            - `docs/README.md`
+
+            ### What to implement
+
+            **Finding 5 — Env var table is incomplete (~line 207)**
+
+            The current table under `### Environment Variables` has only two entries:
+            ```
+            | GCP_MOCK_PORT      | 9090 | Port to listen on |
+            | GCP_MOCK_LOG_LEVEL | info | Log level: debug, info, warn, error |
+            ```
+
+            Replace it with the complete table (matching root README.md lines 472-481):
+            ```
+            | Variable              | Default         | Description |
+            |-----------------------|-----------------|-------------|
+            | GCP_MOCK_PORT         | 9090            | gRPC port (server, server-grpc) |
+            | GCP_MOCK_GRPC_PORT    | 9090            | gRPC port (server-rest, server-dual) |
+            | GCP_MOCK_HTTP_PORT    | 8080            | HTTP port (server-rest, server-dual) |
+            | GCP_MOCK_LOG_LEVEL    | info            | Log level: debug, info, warn, error |
+            | IAM_MODE              | off             | IAM enforcement: off, permissive, strict |
+            | IAM_EMULATOR_HOST     | localhost:8080  | IAM emulator address |
+            ```
+
+            **Finding 6 — API coverage claim in Features list (~line 25)**
+
+            Change:
+            ```
+            - **Complete API** - 11 of 12 methods implemented (92% API coverage)
+            ```
+            to:
+            ```
+            - **Complete API** - 12 of 12 core methods implemented
+            ```
+
+            **Findings 7–8 — Unimplemented Operations section (~line 46–50)**
+
+            The section currently says:
+            ```
+            **Rationale:** IAM methods are not needed for local testing since the emulator
+            has no authentication. All requests succeed regardless of permissions.
+            ```
+
+            This is inaccurate — IAM enforcement IS available via `IAM_MODE`. Update to:
+            ```
+            **Rationale:** Per-resource IAM policy methods (SetIamPolicy, GetIamPolicy,
+            TestIamPermissions) are not needed because authorization is handled via the
+            [IAM Emulator](https://github.com/blackwell-systems/gcp-iam-emulator) control
+            plane. Set `IAM_MODE=permissive` or `IAM_MODE=strict` to enable pre-flight
+            permission checks. With `IAM_MODE=off` (default), all requests succeed
+            regardless of permissions.
+            ```
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `grep "11 of 12" docs/README.md` must return 0 lines.
+            3. `grep "GCP_MOCK_GRPC_PORT" docs/README.md` must return at least 1 line.
+            4. `grep "IAM_EMULATOR_HOST" docs/README.md` must return at least 1 line.
+            5. `grep "All requests succeed regardless" docs/README.md` must return 0 lines.
+
+            ### Constraints
+            - Do not modify any Go source files.
+            - Do not rewrite sections unrelated to the three findings above.
+            - Preserve all markdown heading levels, code blocks, and link targets.
+            - The docs/README.md is distinct from the root README.md; modify only the docs copy.
+          files:
+            - docs/README.md
+        - id: D
+          task: |
+            ## Agent D — docs/ROADMAP.md: current version, v1.2.x/v1.3.0 entries, IAM note
+
+            ### Files owned
+            - `docs/ROADMAP.md`
+
+            ### What to implement
+
+            **Finding 9 — Current release header shows v1.1.0**
+
+            Change the header:
+            ```
+            ## v1.1.0 - Current Release ✓
+            ```
+            to:
+            ```
+            ## v1.3.0 - Current Release ✓
+            ```
+
+            Also update the content under that heading. The current content describes dual
+            protocol support (v1.1.0's actual feature). Keep the v1.1.0 section but demote
+            it to a regular released entry. Insert new sections for v1.3.0, v1.2.2, v1.2.1,
+            and v1.2.0 between the new current-release header and v1.1.0.
+
+            Recommended structure:
+            ```markdown
+            ## v1.3.0 - Current Release ✓  (2026-01-28)
+
+            **IAM Enforcement — Production Parity**
+            - Breaking: startup log strings changed from "Mock" to "Emulator"
+            - Breaking: PermissionDenied messages now include principal/permission/resource
+            - Component ID "gcp-secret-manager-emulator" passed to auth client
+            - Upgraded to gcp-emulator-auth v0.3.0
+
+            ## v1.2.2 - Released ✓  (2026-01-27)
+
+            - REST-only Docker image workflow for HTTP-only deployments
+            - Dual-protocol Docker image workflow (gRPC + HTTP)
+
+            ## v1.2.1 - Released ✓  (2026-01-27)
+
+            - Updated Control Plane description to mention CLI orchestration
+            - Improved README clarity on standalone vs orchestrated deployment modes
+
+            ## v1.2.0 - Released ✓  (2026-01-26)
+
+            **IAM Integration**
+            - Optional permission checks via GCP IAM Emulator
+            - Three modes: off (legacy), permissive (fail-open), strict (fail-closed)
+            - Docker Compose orchestration with IAM emulator
+
+            ## v1.1.0 - Released ✓  (2026-01-25)
+            ```
+            (Then retain the existing v1.1.0 content unchanged below, demoting "Current Release" to "Released".)
+
+            **Finding 10 — v1.1.0 and v1.0.0 entries say "11 methods"**
+
+            In the v1.1.0 section body:
+            ```
+            - ✅ All 11 methods accessible via REST
+            ```
+            Change to:
+            ```
+            - ✅ All 12 methods accessible via REST
+            ```
+
+            In the v1.0.0 section:
+            ```
+            - 11 of 12 Secret Manager methods (92% API coverage)
+            ```
+            Change to:
+            ```
+            - 12 of 12 Secret Manager methods (100% API coverage)
+            ```
+            (v1.0.0 entry is the baseline; v1.2.0 added the 12th method coverage per changelog.)
+
+            **Finding 11 — "Not Planned" section doesn't acknowledge shipped IAM enforcement**
+
+            The "Per-Resource IAM Methods" bullet in the Not Planned section currently reads:
+            ```
+            - SetIamPolicy, GetIamPolicy, TestIamPermissions
+            - Authorization is handled via the IAM Emulator control plane instead
+            - Per-resource policy storage would add complexity without real benefit
+            ```
+            This is already correctly worded. Confirm it is present as-is. If it is missing
+            the context about what was shipped, add: "IAM enforcement via control plane
+            was shipped in v1.2.0 and extended in v1.3.0."
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `grep "v1.1.0 - Current Release" docs/ROADMAP.md` must return 0 lines.
+            3. `grep "v1.3.0" docs/ROADMAP.md` must return at least 1 line.
+            4. `grep "11 of 12" docs/ROADMAP.md` must return 0 lines.
+
+            ### Constraints
+            - Do not modify any Go source files.
+            - Preserve all existing Future Considerations and Contributing Ideas sections.
+            - Keep version entries in reverse chronological order (newest first).
+            - Do not alter the Release Schedule or Changelog sections.
+          files:
+            - docs/ROADMAP.md
+        - id: E
+          task: |
+            ## Agent E — docs/ARCHITECTURE.md: ordering guarantees + future enhancements
+
+            ### Files owned
+            - `docs/ARCHITECTURE.md`
+
+            ### What to implement
+
+            **Finding 12 — Ordering claim at ~line 395**
+
+            Locate this exact sentence in the Pagination section:
+            ```
+            - Results are not guaranteed to be ordered (Go map iteration is non-deterministic)
+            ```
+
+            Replace it with:
+            ```
+            - `ListSecrets` returns results in stable alphabetical order by name on every call
+            - `ListSecretVersions` returns versions in ascending numeric order (1, 2, 3, ..., 10, 11)
+            ```
+
+            **Finding 14 — Future Enhancements at ~line 568**
+
+            Locate this bullet in the `## Future Enhancements` section:
+            ```
+            4. **IAM Methods** - SetIamPolicy, GetIamPolicy for access control testing
+            ```
+
+            Remove it entirely. Replace with a note pointing to the shipped approach:
+            ```
+            4. **IAM Enforcement** - Pre-flight permission checks via IAM Emulator control
+               plane are available today (v1.2.0+). Per-resource IAM policy methods
+               (SetIamPolicy, GetIamPolicy) are not planned — see ROADMAP.md.
+            ```
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `grep "non-deterministic" docs/ARCHITECTURE.md` must return 0 lines.
+            3. `grep "SetIamPolicy.*GetIamPolicy for access control testing" docs/ARCHITECTURE.md`
+               must return 0 lines.
+            4. `grep "alphabetical" docs/ARCHITECTURE.md` must return at least 1 line.
+
+            ### Constraints
+            - Do not modify any Go source files.
+            - Do not alter any other sections of ARCHITECTURE.md.
+            - Do not change any Mermaid diagram blocks.
+            - Only the two specific bullet/sentence replacements described above.
+          files:
+            - docs/ARCHITECTURE.md
+        - id: F
+          task: |
+            ## Agent F — docs/API-REFERENCE.md: PermissionDenied, ordering, IAM env vars
+
+            ### Files owned
+            - `docs/API-REFERENCE.md`
+
+            ### What to implement
+
+            **Findings 15–16 — Add PermissionDenied to Error Codes table (~line 796)**
+
+            The current error codes table (under `## Error Codes`) has 5 rows:
+            InvalidArgument, NotFound, AlreadyExists, FailedPrecondition, Unimplemented.
+
+            Add a `PermissionDenied` row. The table uses columns: Code | Situation | Example.
+            Add this row:
+
+            ```
+            | `PermissionDenied` | IAM check failed — principal lacks required permission | `IAM_MODE=permissive` or `IAM_MODE=strict` and permission denied; format: `Permission denied: principal '<principal>' lacks '<permission>' on resource '<resource>'`; when no principal header: principal is `"(no principal)"` |
+            ```
+
+            Insert it after the `AlreadyExists` row and before `FailedPrecondition`, or
+            append it as the last row — either position is acceptable. Choose a natural
+            reading order.
+
+            **Findings 17–18 — Add ordering guarantees to ListSecretVersions and ListSecrets sections**
+
+            Locate `### ListSecretVersions` (~line 432). After the Response block and before
+            the Go example, add a note:
+
+            ```
+            **Ordering:** Versions are returned in ascending numeric order
+            (e.g., 1, 2, 3, ..., 10, 11). Lexicographic ordering is NOT used.
+            ```
+
+            Locate `### ListSecrets` (~line 214). After the Response block and before the
+            Go example, add a note:
+
+            ```
+            **Ordering:** Results are returned in stable alphabetical order by secret name
+            on every call, including across paginated requests.
+            ```
+
+            **Finding 19 — Add IAM_MODE and IAM_EMULATOR_HOST to Configuration section (~line 1198)**
+
+            The current Configuration table (`### Server Options`) has two entries:
+            `--port` / `GCP_MOCK_PORT` and `--log-level` / `GCP_MOCK_LOG_LEVEL`.
+
+            Expand the table to include all server options. Replace the current table with:
+
+            ```
+            | Flag             | Env Var               | Default        | Description |
+            |------------------|-----------------------|----------------|-------------|
+            | `--port`         | `GCP_MOCK_PORT`       | `9090`         | gRPC port (server) |
+            | (none)           | `GCP_MOCK_GRPC_PORT`  | `9090`         | gRPC port (server-rest, server-dual) |
+            | `--http-port`    | `GCP_MOCK_HTTP_PORT`  | `8080`         | HTTP port (server-rest, server-dual) |
+            | `--log-level`    | `GCP_MOCK_LOG_LEVEL`  | `info`         | Log level: debug, info, warn, error |
+            | (none)           | `IAM_MODE`            | `off`          | IAM enforcement: off, permissive, strict |
+            | (none)           | `IAM_EMULATOR_HOST`   | `localhost:8080` | IAM emulator address |
+            ```
+
+            ### Verification gate
+            1. `go build ./...` — confirms Go source is unaffected.
+            2. `grep "PermissionDenied" docs/API-REFERENCE.md` must return at least 1 line.
+            3. `grep "IAM_EMULATOR_HOST" docs/API-REFERENCE.md` must return at least 1 line.
+            4. `grep "ascending numeric order" docs/API-REFERENCE.md` must return at least 1 line.
+            5. `grep "alphabetical order" docs/API-REFERENCE.md` must return at least 1 line.
+
+            ### Constraints
+            - Do not modify any Go source files.
+            - Do not change the table column headers or markdown formatting style already
+              present in the file.
+            - Do not alter any other sections beyond the three described above.
+            - Preserve all existing examples, code blocks, and cross-references.
+          files:
+            - docs/API-REFERENCE.md
+        - id: G
+          task: |-
+            Fix 2 broken anchors in docs/_sidebar.md and pin Mermaid version in docs/index.html.
+
+            ## Broken anchors to fix
+
+            **Line 6:** `[Installation](/#installation)`
+            The home page (docs/README.md) has no `## Installation` heading. The section is titled `## Quick Start` (line 52 in docs/README.md). Change to:
+            `[Quick Start](/#quick-start)`
+
+            **Line 16:** `[Testing Strategies](/#testing-strategies)`
+            The home page (docs/README.md) has no `## Testing Strategies` heading. The section `## Testing Strategies` exists in docs/API-REFERENCE.md at line 1126. Change to:
+            `[Testing Strategies](API-REFERENCE.md#testing-strategies)`
+
+            **Line 30:** `[Contributing](API-REFERENCE.md#contributing)` — DO NOT CHANGE. The heading exists at line 1317 of docs/API-REFERENCE.md and the anchor is valid.
+
+            ## Mermaid version pin in docs/index.html
+
+            Find: `<script src="//cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js">`
+            Replace with: `<script src="//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">`
+
+            ## Verification
+            After editing, confirm:
+            - grep for `/#installation` in docs/_sidebar.md returns 0 results
+            - grep for `/#testing-strategies` in docs/_sidebar.md returns 0 results
+            - grep for `API-REFERENCE.md#contributing` still returns 1 result (unchanged)
+            - grep for `mermaid/dist/mermaid.min.js` in docs/index.html returns 0 results (pinned version used)
+          files:
+            - docs/_sidebar.md
+            - docs/index.html
+      base_commit: 88b0c5789d957a8d95b23b115cb854c8a33c9ef2
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+        - type: custom
+          command: grep -c "IAM_HOST" docker-compose.yml || true
+          required: false
+          description: 'After Agent A completes, grep for the old env var name in docker-compose.yml. Expected output: 0. Any non-zero result means a stale IAM_HOST reference remains.'
+completion_reports:
+    A:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-A
+        commit: 534d29d
+        files_changed:
+            - docker-compose.yml
+        verification: PASS
+    B:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-B
+        commit: c9f278e
+        files_changed:
+            - docs/CHANGELOG.md
+        verification: 'PASS: go build ./... clean; diff with root CHANGELOG.md empty; IAM_HOST grep returns only historical-context lines (expected)'
+    C:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-C
+        commit: 774766f
+        files_changed:
+            - docs/README.md
+        verification: 'PASS: go build clean; grep checks confirm no ''11 of 12'', GCP_MOCK_GRPC_PORT present, IAM_EMULATOR_HOST present, no stale ''All requests succeed regardless'''
+    D:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-D
+        commit: 1ba5bd7
+        files_changed:
+            - docs/ROADMAP.md
+        verification: PASS
+    E:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-E
+        commit: afe3964
+        files_changed:
+            - docs/ARCHITECTURE.md
+        verification: PASS
+    F:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-F
+        commit: efbed47
+        files_changed:
+            - docs/API-REFERENCE.md
+        verification: PASS
+    G:
+        status: complete
+        branch: saw/docs-fixes/wave1-agent-G
+        commit: ecf3211
+        files_changed:
+            - docs/_sidebar.md
+            - docs/index.html
+        verification: PASS
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agent B replaces docs/CHANGELOG.md by reading the root CHANGELOG.md and writing the content. If the agent reads the root file incorrectly or truncates it, the docs CHANGELOG may end up partial or empty.
+          likelihood: low
+          impact: medium
+          mitigation: The verification gate requires diff /CHANGELOG.md docs/CHANGELOG.md to produce no output. If the agent's write is incomplete, diff will catch it immediately.
+        - scenario: Agent F expands the Error Codes table but mistakenly removes an existing row while inserting PermissionDenied, leaving fewer than 5 original entries.
+          likelihood: low
+          impact: low
+          mitigation: 'Verification gate grep count can be augmented: the agent should confirm all 5 original codes (InvalidArgument, NotFound, AlreadyExists, FailedPrecondition, Unimplemented) still appear after the edit.'
+        - scenario: Agent G removes the Contributing link from the sidebar but leaves a dangling table-of-contents entry inside API-REFERENCE.md that references a non-existent section heading. This is pre-existing and is not Agent G's responsibility to fix, but reviewers may flag it post-merge.
+          likelihood: medium
+          impact: low
+          mitigation: Document as a known pre-existing issue. A follow-up task can remove the stale table-of-contents entry from API-REFERENCE.md if desired.
+        - scenario: Agent D restructures docs/ROADMAP.md version sections in a way that loses the existing Future Considerations or Contributing Ideas prose.
+          likelihood: low
+          impact: low
+          mitigation: Agent brief explicitly says to preserve those sections. Verification grep checks confirm the version entries are present. A final manual review of ROADMAP.md before merge is recommended.
+        - scenario: Two agents (e.g., B and C) are launched concurrently in the same worktree and accidentally overwrite each other's file changes if worktree isolation is not enforced correctly.
+          likelihood: low
+          impact: medium
+          mitigation: File ownership is fully disjoint. Each agent owns a distinct set of files with no overlap. Worktree isolation enforces this at the filesystem level. No two agents in this wave touch the same file.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+        G:
+            agent_id: G
+            verdict: PASS
+    summary: 'All 7 agent briefs were verified against the codebase. Every file referenced with action:modify exists. All specific line numbers, exact text strings, env var names, section headings, and anchor targets cited in the briefs were confirmed present in the source files. Agent A''s IAM_HOST occurrences are at lines 31 and 50 as stated; version: ''3.8'' is on line 1 as stated. Agent B''s root CHANGELOG.md exists and is readable. Agent C''s env var table, API coverage claim, and IAM rationale text all match the described locations. Agent D''s ROADMAP.md header and version entries match exactly. Agent E''s ordering claim at line 395 and IAM Methods future enhancement at line 568 match exactly. Agent F''s Error Codes table, ListSecrets/ListSecretVersions sections, and Configuration table all match the described state and line numbers. Agent G''s broken anchors at lines 6 and 16 are confirmed as stated, the Contributing anchor at line 30 is valid as noted, and the unpinned Mermaid script tag is present at line 117 of index.html. No errors found.'
+    reviewed_at: "2026-03-21T22:53:41Z"
+    issue_count: 0
+state: "COMPLETE"
