@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- IAM integration tests used wrong environment variable (`IAM_HOST`) to configure
+  the IAM emulator host; the `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`.
+  Tests now use the correct variable for skip guards, connectivity simulation, and
+  server setup.
+- Integration test for "permissive mode without principal" had incorrect expectations:
+  permissive mode only fails-open on connectivity errors, not on clean policy denials.
+  Test renamed and expectation corrected to `PermissionDenied`.
+- IAM integration tests now manage policy state explicitly per-test (`setIAMTestPolicy`
+  / `clearIAMTestPolicy`) so deny tests always run against a clean emulator state,
+  and allow tests set up and tear down their own policy bindings.
+
 ## [1.3.0] - 2026-01-28
 
 ### Changed
