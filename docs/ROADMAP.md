@@ -2,13 +2,38 @@
 
 This document outlines the planned features and improvements for the GCP Secret Manager Emulator.
 
-## v1.1.0 - Current Release ✓
+## v1.3.0 - Current Release ✓  (2026-01-28)
+
+**IAM Enforcement — Production Parity**
+- Breaking: startup log strings changed from "Mock" to "Emulator"
+- Breaking: PermissionDenied messages now include principal/permission/resource
+- Component ID "gcp-secret-manager-emulator" passed to auth client
+- Upgraded to gcp-emulator-auth v0.3.0
+
+## v1.2.2 - Released ✓  (2026-01-27)
+
+- REST-only Docker image workflow for HTTP-only deployments
+- Dual-protocol Docker image workflow (gRPC + HTTP)
+
+## v1.2.1 - Released ✓  (2026-01-27)
+
+- Updated Control Plane description to mention CLI orchestration
+- Improved README clarity on standalone vs orchestrated deployment modes
+
+## v1.2.0 - Released ✓  (2026-01-26)
+
+**IAM Integration**
+- Optional permission checks via GCP IAM Emulator
+- Three modes: off (legacy), permissive (fail-open), strict (fail-closed)
+- Docker Compose orchestration with IAM emulator
+
+## v1.1.0 - Released ✓  (2026-01-25)
 
 **Dual Protocol Support**
 - ✅ REST/HTTP API alongside gRPC (complete feature parity)
 - ✅ Three server variants: gRPC-only, REST-only, Dual-protocol
 - ✅ Custom HTTP gateway with GCP-compatible endpoints
-- ✅ All 11 methods accessible via REST
+- ✅ All 12 methods accessible via REST
 - ✅ JSON request/response with protobuf marshaling
 - ✅ Health check endpoint (`/health`)
 - ✅ Docker multi-variant builds
@@ -36,7 +61,7 @@ docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
 ## v1.0.0 - Released 2026-01-26 ✓
 
 **Complete API Implementation**
-- 11 of 12 Secret Manager methods (92% API coverage)
+- 12 of 12 Secret Manager methods (100% API coverage)
 - Full version lifecycle (Enable, Disable, Destroy)
 - UpdateSecret with FieldMask support
 - 90.8% test coverage
@@ -81,6 +106,7 @@ These features are explicitly out of scope:
 - SetIamPolicy, GetIamPolicy, TestIamPermissions
 - Authorization is handled via the IAM Emulator control plane instead
 - Per-resource policy storage would add complexity without real benefit
+- IAM enforcement via control plane was shipped in v1.2.0 and extended in v1.3.0.
 
 **Encryption at Rest**
 - In-memory storage is intentionally plaintext
