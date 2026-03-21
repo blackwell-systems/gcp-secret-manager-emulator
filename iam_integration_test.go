@@ -6,7 +6,9 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,24 +20,73 @@ import (
 	"github.com/blackwell-systems/gcp-secret-manager-emulator/internal/server"
 )
 
+// setIAMTestPolicy sets a policy on the IAM emulator granting role to member on resource.
+func setIAMTestPolicy(host, resource, role, member string) error {
+	conn, err := grpc.NewClient(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("connect to IAM emulator at %s: %w", host, err)
+	}
+	defer conn.Close()
+
+	client := iampb.NewIAMPolicyClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = client.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{
+		Resource: resource,
+		Policy: &iampb.Policy{
+			Bindings: []*iampb.Binding{
+				{Role: role, Members: []string{member}},
+			},
+		},
+	})
+	return err
+}
+
+// clearIAMTestPolicy removes all bindings on resource.
+func clearIAMTestPolicy(host, resource string) error {
+	conn, err := grpc.NewClient(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := iampb.NewIAMPolicyClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = client.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{
+		Resource: resource,
+		Policy:   &iampb.Policy{}, // empty = no bindings
+	})
+	return err
+}
+
 func TestIAMIntegration(t *testing.T) {
-	iamHost := os.Getenv("IAM_HOST")
-	if iamHost == "" {
-		t.Skip("Skipping IAM integration tests - IAM_HOST not set")
+	if os.Getenv("IAM_EMULATOR_HOST") == "" {
+		t.Skip("Skipping IAM integration tests - IAM_EMULATOR_HOST not set")
 	}
 
+	iamHost := os.Getenv("IAM_EMULATOR_HOST")
+
 	tests := []struct {
-		name         string
-		iamMode      string
-		principal    string
-		operation    func(secretmanagerpb.SecretManagerServiceClient, context.Context) error
-		expectError  bool
-		expectedCode codes.Code
+		name          string
+		iamMode       string
+		principal     string
+		clearPolicy   bool // clear projects/test policy before test (ensures clean state)
+		setupPolicy   bool // grant user:admin@example.com secretmanager.admin on projects/test
+		operation     func(secretmanagerpb.SecretManagerServiceClient, context.Context) error
+		expectError   bool
+		expectedCode  codes.Code
 	}{
 		{
-			name:      "permissive mode - allow without principal",
-			iamMode:   "permissive",
-			principal: "",
+			// Permissive mode only fails-open on *connectivity* errors.
+			// When IAM is reachable and denies (no policy for empty principal),
+			// permissive mode still denies — same as strict.
+			name:        "permissive mode - deny without principal (policy denied)",
+			iamMode:     "permissive",
+			principal:   "",
+			clearPolicy: true,
 			operation: func(client secretmanagerpb.SecretManagerServiceClient, ctx context.Context) error {
 				_, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 					Parent:   "projects/test",
@@ -50,12 +101,14 @@ func TestIAMIntegration(t *testing.T) {
 				})
 				return err
 			},
-			expectError: false,
+			expectError:  true,
+			expectedCode: codes.PermissionDenied,
 		},
 		{
-			name:      "strict mode - deny without principal",
-			iamMode:   "strict",
-			principal: "",
+			name:        "strict mode - deny without principal",
+			iamMode:     "strict",
+			principal:   "",
+			clearPolicy: true,
 			operation: func(client secretmanagerpb.SecretManagerServiceClient, ctx context.Context) error {
 				_, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 					Parent:   "projects/test",
@@ -74,9 +127,10 @@ func TestIAMIntegration(t *testing.T) {
 			expectedCode: codes.PermissionDenied,
 		},
 		{
-			name:      "strict mode - allow with authorized principal",
-			iamMode:   "strict",
-			principal: "user:admin@example.com",
+			name:        "strict mode - allow with authorized principal",
+			iamMode:     "strict",
+			principal:   "user:admin@example.com",
+			setupPolicy: true,
 			operation: func(client secretmanagerpb.SecretManagerServiceClient, ctx context.Context) error {
 				_, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 					Parent:   "projects/test",
@@ -94,9 +148,10 @@ func TestIAMIntegration(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:      "strict mode - access secret version requires permission",
-			iamMode:   "strict",
-			principal: "user:admin@example.com",
+			name:        "strict mode - access secret version requires permission",
+			iamMode:     "strict",
+			principal:   "user:admin@example.com",
+			setupPolicy: true,
 			operation: func(client secretmanagerpb.SecretManagerServiceClient, ctx context.Context) error {
 				_, err := client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 					Parent:   "projects/test",
@@ -134,6 +189,18 @@ func TestIAMIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.clearPolicy {
+				if err := clearIAMTestPolicy(iamHost, "projects/test"); err != nil {
+					t.Fatalf("failed to clear IAM test policy: %v", err)
+				}
+			}
+			if tt.setupPolicy {
+				if err := setIAMTestPolicy(iamHost, "projects/test", "roles/secretmanager.admin", "user:admin@example.com"); err != nil {
+					t.Fatalf("failed to set IAM test policy: %v", err)
+				}
+				t.Cleanup(func() { _ = clearIAMTestPolicy(iamHost, "projects/test") })
+			}
+
 			os.Setenv("IAM_MODE", tt.iamMode)
 			defer os.Unsetenv("IAM_MODE")
 
@@ -207,9 +274,8 @@ func TestIAMModeOff(t *testing.T) {
 }
 
 func TestIAMPermissiveVsStrict(t *testing.T) {
-	iamHost := os.Getenv("IAM_HOST")
-	if iamHost == "" {
-		t.Skip("Skipping IAM integration tests - IAM_HOST not set")
+	if os.Getenv("IAM_EMULATOR_HOST") == "" {
+		t.Skip("Skipping IAM integration tests - IAM_EMULATOR_HOST not set")
 	}
 
 	tests := []struct {
@@ -234,9 +300,9 @@ func TestIAMPermissiveVsStrict(t *testing.T) {
 			os.Setenv("IAM_MODE", tt.iamMode)
 			defer os.Unsetenv("IAM_MODE")
 
-			originalHost := os.Getenv("IAM_HOST")
-			os.Setenv("IAM_HOST", "localhost:65535")
-			defer os.Setenv("IAM_HOST", originalHost)
+			originalHost := os.Getenv("IAM_EMULATOR_HOST")
+			os.Setenv("IAM_EMULATOR_HOST", "localhost:65535")
+			defer os.Setenv("IAM_EMULATOR_HOST", originalHost)
 
 			_, lis, cleanup := setupTestServerForIAM(t)
 			defer cleanup()
