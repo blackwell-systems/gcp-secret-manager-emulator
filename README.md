@@ -114,7 +114,7 @@ server-dual
 cd ../gcp-iam-emulator && ./bin/server --config policy.yaml
 
 # Start Secret Manager with enforcement
-IAM_MODE=strict IAM_HOST=localhost:8080 server-dual
+IAM_MODE=strict IAM_EMULATOR_HOST=localhost:8080 server-dual
 # Now requires valid permissions for all operations
 ```
 
@@ -392,7 +392,7 @@ The Secret Manager emulator supports optional permission checks using the [GCP I
   - `off` - No permission checks (legacy behavior)
   - `permissive` - Check permissions, fail-open on connectivity errors
   - `strict` - Check permissions, fail-closed on connectivity errors (for CI)
-- `IAM_HOST` - IAM emulator address (default: `localhost:8080`)
+- `IAM_EMULATOR_HOST` - IAM emulator address (default: `localhost:8080`)
 
 ### Usage
 
@@ -403,12 +403,12 @@ server-dual
 
 **With IAM (permissive mode):**
 ```bash
-IAM_MODE=permissive IAM_HOST=localhost:8080 server-dual
+IAM_MODE=permissive IAM_EMULATOR_HOST=localhost:8080 server-dual
 ```
 
 **With IAM (strict mode for CI):**
 ```bash
-IAM_MODE=strict IAM_HOST=localhost:8080 server-dual
+IAM_MODE=strict IAM_EMULATOR_HOST=localhost:8080 server-dual
 ```
 
 ### Principal Injection
@@ -478,7 +478,7 @@ IAM enforcement in this emulator is deliberately scoped for **authorization test
 | `GCP_MOCK_HTTP_PORT` | `8080` | HTTP port (`server-rest`, `server-dual`) |
 | `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
 | `IAM_MODE` | `off` | IAM enforcement: off, permissive, strict |
-| `IAM_HOST` | `localhost:8080` | IAM emulator address |
+| `IAM_EMULATOR_HOST` | `localhost:8080` | IAM emulator address |
 
 ### Command Line Flags
 
