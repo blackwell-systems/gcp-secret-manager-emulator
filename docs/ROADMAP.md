@@ -68,6 +68,31 @@ docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
 - Complete documentation
 - Docker support with multi-arch images
 
+## v1.4.0 - Planned
+
+**Correctness & Bug Fixes**
+
+*REST Gateway*
+- Fix HTTP error codes — all gRPC errors currently map to 500; correct mapping: `NotFound`→404, `AlreadyExists`→409, `FailedPrecondition`/`InvalidArgument`→400, `PermissionDenied`→403
+- Fix `getSecret`/`getSecretVersion` which incorrectly hardcode 404 for all errors including IAM denials and internal errors
+- Fix `UpdateSecret` via REST — `update_mask` query parameter is never forwarded to gRPC, causing every PATCH to return 500
+- Fix `NewServer` panic on gRPC dial failure — should return an error instead
+- Honor `pageSize` query parameter in `ListSecrets` and `ListSecretVersions` (currently hardcoded to 100)
+- Accept URL-safe base64 for `AddSecretVersion` payload data (currently only standard base64 accepted)
+
+*Storage / Protocol*
+- Fix `DestroySecretVersion` idempotency — second destroy should return `FailedPrecondition`, not success
+- Fix `EnableSecretVersion` on already-ENABLED version — should return `FailedPrecondition`
+- Fix `DisableSecretVersion` on already-DISABLED version — should return `FailedPrecondition`
+- Fix `GetSecretVersion("latest")` — should resolve to highest-numbered version regardless of state; currently skips DISABLED/DESTROYED versions
+- Fix `AccessSecretVersion("latest")` when all versions are disabled — should return `FailedPrecondition` not `NotFound`
+- Fix `ListSecretVersions` unknown filter value — should return `InvalidArgument`, currently silently returns 0 results
+- Fix `resolveLatestVersion` using 0 as sentinel — latent bug when version key parse fails
+- Validate `secret_id` format on `CreateSecret` (must match `[a-zA-Z0-9_-]{1,255}`)
+
+*Test fixes*
+- Fix tests that assert wrong behavior: double-destroy/disable/enable succeeds, `UpdateSecret` returns 500, invalid filter returns all versions
+
 ## Future Considerations
 
 These features may be considered based on user demand:
