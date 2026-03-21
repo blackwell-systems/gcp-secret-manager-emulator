@@ -82,7 +82,13 @@ func (s *Server) checkPermission(ctx context.Context, operation string, resource
 	}
 
 	if !allowed {
-		return status.Error(codes.PermissionDenied, "Permission denied")
+		displayPrincipal := principal
+		if displayPrincipal == "" {
+			displayPrincipal = "(no principal)"
+		}
+		return status.Errorf(codes.PermissionDenied,
+			"Permission denied: principal '%s' lacks '%s' on resource '%s'",
+			displayPrincipal, permCheck.Permission, resource)
 	}
 
 	return nil

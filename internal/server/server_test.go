@@ -5,8 +5,15 @@ import (
 	"fmt"
 	"testing"
 
+	"net"
+	"strings"
+
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
@@ -1317,4 +1324,139 @@ func TestServer_VersionStateManagement(t *testing.T) {
 			}
 		}
 	})
+}
+
+// denyAllIAMServer is a minimal IAMPolicyServer that denies all permissions.
+type denyAllIAMServer struct {
+	iampb.UnimplementedIAMPolicyServer
+}
+
+func (d *denyAllIAMServer) TestIamPermissions(_ context.Context, _ *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+	// Return empty permissions slice — none are granted.
+	return &iampb.TestIamPermissionsResponse{Permissions: []string{}}, nil
+}
+
+// startDenyAllIAMServer starts a local gRPC IAM server that denies everything.
+func startDenyAllIAMServer(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	grpcSrv := grpc.NewServer()
+	iampb.RegisterIAMPolicyServer(grpcSrv, &denyAllIAMServer{})
+	go func() {
+		if serveErr := grpcSrv.Serve(lis); serveErr != nil && serveErr != grpc.ErrServerStopped {
+			t.Logf("denyAllIAMServer error: %v", serveErr)
+		}
+	}()
+	t.Cleanup(func() { grpcSrv.Stop() })
+	return lis.Addr().String()
+}
+
+// TestPermissionDenied_ErrorMessageFormat verifies that when IAM denies a
+// request, the error message contains the principal, permission, and resource.
+func TestPermissionDenied_ErrorMessageFormat(t *testing.T) {
+	addr := startDenyAllIAMServer(t)
+
+	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict, "test")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	// Create a base server for storage setup (IAM disabled).
+	setupServer, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer (setup): %v", err)
+	}
+	_, createErr := setupServer.storage.CreateSecret(context.Background(), "projects/test-project", "my-secret", nil)
+	if createErr != nil {
+		t.Fatalf("storage.CreateSecret: %v", createErr)
+	}
+
+	// Build a Server directly with IAM enabled, sharing the pre-populated storage.
+	s := &Server{
+		storage:   setupServer.storage,
+		iamClient: iamClient,
+		iamMode:   emulatorauth.AuthModeStrict,
+	}
+
+	// Inject a principal into the incoming gRPC metadata context.
+	md := metadata.Pairs(emulatorauth.PrincipalMetadataKey, "user:alice@example.com")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, getErr := s.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
+		Name: "projects/test-project/secrets/my-secret",
+	})
+	if getErr == nil {
+		t.Fatal("GetSecret() expected PermissionDenied error, got nil")
+	}
+
+	st, ok := status.FromError(getErr)
+	if !ok {
+		t.Fatalf("error is not a gRPC status: %v", getErr)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Errorf("error code = %v, want PermissionDenied", st.Code())
+	}
+
+	msg := st.Message()
+	if !strings.Contains(msg, "user:alice@example.com") {
+		t.Errorf("error message %q does not contain principal", msg)
+	}
+	if !strings.Contains(msg, "secretmanager.secrets.get") {
+		t.Errorf("error message %q does not contain permission", msg)
+	}
+	if !strings.Contains(msg, "projects/test-project/secrets/my-secret") {
+		t.Errorf("error message %q does not contain resource", msg)
+	}
+}
+
+// TestPermissionDenied_NoPrincipal verifies the "(no principal)" rendering
+// when no principal header is present in the context.
+func TestPermissionDenied_NoPrincipal(t *testing.T) {
+	addr := startDenyAllIAMServer(t)
+
+	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict, "test")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	setupServer, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer (setup): %v", err)
+	}
+	_, createErr := setupServer.storage.CreateSecret(context.Background(), "projects/p", "s", nil)
+	if createErr != nil {
+		t.Fatalf("storage.CreateSecret: %v", createErr)
+	}
+
+	s := &Server{
+		storage:   setupServer.storage,
+		iamClient: iamClient,
+		iamMode:   emulatorauth.AuthModeStrict,
+	}
+
+	// Context with no principal injected.
+	ctx := context.Background()
+
+	_, getErr := s.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
+		Name: "projects/p/secrets/s",
+	})
+	if getErr == nil {
+		t.Fatal("GetSecret() expected PermissionDenied error, got nil")
+	}
+
+	st, ok := status.FromError(getErr)
+	if !ok {
+		t.Fatalf("error is not a gRPC status: %v", getErr)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Errorf("error code = %v, want PermissionDenied", st.Code())
+	}
+
+	msg := st.Message()
+	if !strings.Contains(msg, "(no principal)") {
+		t.Errorf("error message %q does not contain '(no principal)'", msg)
+	}
 }
