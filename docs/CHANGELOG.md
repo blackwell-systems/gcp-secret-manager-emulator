@@ -7,141 +7,166 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-01-27
+### Fixed
+- REST gateway (`server-dual`, `server-rest`) now correctly propagates the
+  `X-Emulator-Principal` header to the gRPC layer. Previously the header was
+  silently dropped, effectively bypassing IAM enforcement for all HTTP clients
+  regardless of `IAM_MODE`. **Behavior change**: HTTP requests that send
+  `X-Emulator-Principal` with `IAM_MODE=permissive` or `IAM_MODE=strict` will
+  now be subject to IAM checks; requests that were previously allowed through
+  may now return `PermissionDenied`.
+- `ListSecretVersions` now returns versions in numeric order (`1, 2, 3, ..., 10,
+  11, 12`) instead of lexicographic order (`1, 10, 11, 12, 2, 3, ...`). Only
+  affects secrets with 10 or more versions. **Behavior change**: clients
+  depending on the previous lexicographic order will see a different sequence.
+- `ListSecrets` now returns secrets in stable alphabetical order on every call.
+  Previously, results were in random map-iteration order, which could produce
+  duplicates or skipped entries across paginated calls.
+- README documented `IAM_HOST` as the IAM emulator address variable; the
+  `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`. All occurrences
+  updated.
+- IAM integration tests used wrong environment variable (`IAM_HOST`) to configure
+  the IAM emulator host; the `gcp-emulator-auth` library reads `IAM_EMULATOR_HOST`.
+  Tests now use the correct variable for skip guards, connectivity simulation, and
+  server setup.
+- Integration test for "permissive mode without principal" had incorrect expectations:
+  permissive mode only fails-open on connectivity errors, not on clean policy denials.
+  Test renamed and expectation corrected to `PermissionDenied`.
+- IAM integration tests now manage policy state explicitly per-test (`setIAMTestPolicy`
+  / `clearIAMTestPolicy`) so deny tests always run against a clean emulator state,
+  and allow tests set up and tear down their own policy bindings.
+
+## [1.3.0] - 2026-01-28
+
+### Changed
+- **Breaking**: Startup log strings changed from "GCP Secret Manager Mock Server" to
+  "GCP Secret Manager Emulator". Users parsing stdout for the old string (log alerts,
+  CI grep scripts) must update their patterns.
+- **Breaking**: PermissionDenied error messages now include context. The `checkPermission`
+  error message format has changed from the generic `"Permission denied"` to a
+  detailed message that includes the principal, the required permission, and the
+  resource. Example:
+  `"Permission denied: principal 'user:x@example.com' lacks 'secretmanager.secrets.get' on resource 'projects/p/secrets/s'"`
+  When no principal header is present, the principal is rendered as `"(no principal)"`.
+  Callers doing an exact string match on `"Permission denied"` must update their
+  checks; callers using `strings.Contains(err.Error(), "Permission denied")` are
+  unaffected.
+- **Component Identification**: Pass "gcp-secret-manager-emulator" to auth client
+  - Enables trace analysis tools to identify calling service
+  - Authorization traces now show both policy engine and requesting component
+- Upgraded to gcp-emulator-auth v0.3.0 (requires component parameter)
+- Enhanced README with hermetic seal narrative
+  - Explains pre-flight IAM enforcement vs post-hoc observation
+  - Clarifies control plane/data plane architecture
+  - Positions Secret Manager as data plane in Blackwell ecosystem
+
+## [1.2.2] - 2026-01-27
+
+### Added
+- REST-only Docker image workflow for HTTP-only deployments
+- Dual-protocol Docker image workflow (gRPC + HTTP)
+
+## [1.2.1] - 2026-01-27
+
+### Changed
+- Updated Control Plane description to mention CLI orchestration
+- Improved README clarity on standalone vs orchestrated deployment modes
+
+## [1.2.0] - 2026-01-26
 
 ### Added
 - **IAM Integration**: Optional permission checks with GCP IAM Emulator
   - Three authorization modes: `off` (legacy), `permissive` (fail-open), `strict` (fail-closed)
   - Environment variables: `IAM_MODE` and `IAM_HOST`
   - Principal injection via `x-emulator-principal` (gRPC) and `X-Emulator-Principal` (HTTP)
-  - Complete permission mapping for all 12 Secret Manager operations
+  - Complete permission mapping for all Secret Manager operations
   - Integration with `gcp-emulator-auth` shared library
-  - Resource normalization for secrets, versions, and parent projects
-  - Integration tests covering all three modes
-- **Docker Compose**: Multi-mode orchestration examples
-  - Default service with `IAM_MODE=permissive`
-  - Strict mode service for CI workflows
-  - Legacy mode service (IAM disabled)
-  - Health checks and service dependencies
+  - Integration tests covering all three IAM modes
 - **Documentation**: IAM Integration section in README
   - Configuration guide
   - Usage examples for all three modes
   - Permission mapping table
   - Mode comparison table
+- Docker Compose orchestration with IAM emulator
 
 ### Changed
 - `NewServer()` now returns `(*Server, error)` to handle IAM client initialization errors
 - Server struct includes `iamClient` and `iamMode` fields
 - All operations check permissions before storage calls (when IAM enabled)
-- Backward compatible: IAM disabled by default (`IAM_MODE=off`)
 
 ### Technical Details
-- Uses `gcp-emulator-auth v0.0.0-20260126234751-6976d522b21f`
-- Permission checks placed after validation, before storage operations
-- Non-breaking change: existing deployments unaffected
-- Fail-open vs fail-closed behavior configurable per environment
+- Backward compatible: IAM enforcement is opt-in via `IAM_MODE` environment variable
+- Permission checks use `gcp-emulator-auth` library (v0.1.0+)
+- Fail-open mode allows graceful degradation during IAM unavailability
+- Strict mode ensures production parity for CI/CD pipelines
 
-## [1.1.0] - 2026-01-26
+## [1.1.0] - 2026-01-25
 
 ### Added
-- **REST/HTTP API Support**: Full REST API implementation alongside existing gRPC
-  - Three server variants: `server` (gRPC), `server-rest` (REST), `server-dual` (both)
-  - HTTP gateway at `internal/gateway` with GCP-compatible endpoints
-  - All 11 methods accessible via REST: `POST /v1/projects/{p}/secrets`, `GET /v1/.../versions/{v}:access`, etc.
-  - JSON request/response format with protobuf marshaling
-  - Base64 encoding for secret payloads
-  - Health check endpoint at `/health`
-- **Docker Multi-Variant Builds**: Build-time selection via `VARIANT` argument
-  - `docker build --build-arg VARIANT=grpc` - gRPC only (default)
-  - `docker build --build-arg VARIANT=rest` - REST only
-  - `docker build --build-arg VARIANT=dual` - Both protocols
-- **Makefile Targets**: `make build-rest`, `make build-dual`, `make docker-grpc`, `make docker-rest`, `make docker-dual`
-- **Documentation**: 
-  - REST API examples in README and API-REFERENCE
-  - REST endpoint quick reference table
-  - Dual protocol architecture diagrams
-  - Docker usage for all variants
+- **REST/HTTP API Support**: Full HTTP/JSON gateway alongside gRPC
+  - Complete Secret Manager v1 REST API implementation
+  - Dual-protocol server binary (`server-dual`)
+  - REST-only server binary (`server-rest`)
+  - HTTP port configuration via `--http-port` flag
+  - Support for both gRPC and REST in same process
+- Docker images for all protocol combinations
+  - `ghcr.io/blackwell-systems/gcp-secret-manager-emulator:latest` (dual protocol)
+  - `ghcr.io/blackwell-systems/gcp-secret-manager-emulator:rest-only` (HTTP only)
 
 ### Changed
-- Binary sizes: gRPC-only 16MB (unchanged), REST/Dual 18MB (+2MB for gateway)
-- Port exposure: Dual mode exposes both 9090 (gRPC) and 8080 (HTTP)
-- Documentation updated across README, API-REFERENCE, ARCHITECTURE, coverpage
+- Improved README with Quick Start section prominently placed
+- Moved API limitations section lower in documentation
+- Enhanced usage examples for both protocols
 
 ### Technical Details
-- REST gateway uses internal gRPC client (no code generation required)
-- Custom HTTP router parsing GCP REST paths
-- Thread-safe operation (shared storage layer)
-- Zero protocol-specific bloat in gRPC-only builds
+- REST API follows Google's HTTP/JSON mapping conventions
+- Resource names in URL paths, request bodies as JSON
+- Standard HTTP status codes (200, 404, 403, 500)
+- Content-Type: application/json
 
-## [1.0.0] - 2026-01-26
-
-### Added
-- **UpdateSecret**: Modify secret metadata (labels, annotations) with field mask support
-  - Selective field updates via FieldMask (labels, annotations)
-  - Idempotent operation
-  - Comprehensive error handling (InvalidArgument, NotFound)
-- **DestroySecretVersion**: Permanently destroy a version (irreversible, clears payload)
-  - Sets version state to DESTROYED
-  - Permanently removes payload data
-  - Idempotent operation (destroying twice succeeds)
-  - AccessSecretVersion returns FailedPrecondition for destroyed versions
-  - Latest alias skips destroyed versions
-- **Documentation**: SECURITY.md, MAINTAINERS.md, BRAND.md
-- **Examples**: Added version lifecycle and metadata update examples
-
-### Changed
-- Latest alias resolution now skips both disabled and destroyed versions
-- API coverage increased to 92% (11 of 12 methods implemented)
-- Test coverage increased to 90.8%
-- Documentation reorganized: single source in docs/ directory
-
-### Fixed
-- Pagination bug in ListSecretVersions causing duplicate results (map iteration was non-deterministic)
-
-## [0.2.0] - 2026-01-25
+## [1.0.0] - 2026-01-24
 
 ### Added
-- **ListSecretVersions**: List all versions of a secret with pagination support (#1)
-- **DisableSecretVersion**: Disable a secret version to prevent access (#1)
-- **EnableSecretVersion**: Re-enable a previously disabled version (#1)
-- **Filter support**: ListSecretVersions now supports `state:ENABLED`, `state:DISABLED`, `state:DESTROYED` filters
-- **Soft-delete testing**: Disabling all versions makes `AccessSecretVersion(latest)` return NotFound
+- Complete Secret Manager v1 gRPC API implementation
+  - CreateSecret, GetSecret, UpdateSecret, DeleteSecret
+  - AddSecretVersion, GetSecretVersion, AccessSecretVersion
+  - ListSecrets, ListSecretVersions
+  - Resource name validation and normalization
+- In-memory storage with thread-safe access
+- Project-scoped secret isolation
+- Secret version lifecycle management (ENABLED, DISABLED, DESTROYED)
+- Base64 payload encoding/decoding
+- Comprehensive error handling with proper gRPC status codes
+- Docker image with GitHub Container Registry publishing
+- CI/CD with automated testing and image builds
 
-### Fixed
-- CI coverage upload condition now uses correct Go version (1.24 instead of 1.23)
+### Technical Details
+- Implements `google.cloud.secretmanager.v1.SecretManagerService`
+- Compatible with official GCP client libraries
+- No persistence between restarts (in-memory only)
+- No authentication required (local development)
+- No IAM enforcement (all operations allowed)
 
-### Changed
-- AccessSecretVersion now returns `FailedPrecondition` when accessing disabled versions (per GCP API spec)
-- Latest alias resolution skips disabled versions (resolves to highest ENABLED version only)
-
-## [0.1.0] - 2026-01-21
+## [0.2.0] - 2026-01-23
 
 ### Added
-- Initial release
-- Core Secret Manager API implementation:
-  - CreateSecret
-  - GetSecret
-  - ListSecrets (with pagination)
-  - DeleteSecret
-  - AddSecretVersion
-  - GetSecretVersion
-  - AccessSecretVersion (with "latest" alias support)
-- In-memory storage with thread-safe operations
+- Initial functional release with core Secret Manager operations
+- Basic secret creation and retrieval
+- Version management
 - gRPC server implementation
-- Docker container support
-- Comprehensive documentation (README, API Reference, Architecture)
-- Docsify documentation site
-- Integration tests with real GCP SDK client
-- CI/CD with multi-platform testing (Ubuntu, macOS, Windows)
-- Race detection in tests
 
-### Security
-- Runs as non-root user in Docker
-- No authentication by design (testing-only emulator)
+### Known Limitations
+- No IAM integration (all requests allowed)
+- No persistence (in-memory only)
+- No REST API (gRPC only)
 
-[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.0...HEAD
+---
+
+[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.2...v1.3.0
+[1.2.2]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v0.2.0...v1.0.0
-[0.2.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/releases/tag/v0.1.0
+[0.2.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/releases/tag/v0.2.0
