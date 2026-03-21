@@ -392,7 +392,8 @@ sequenceDiagram
 **Implementation:**
 - Page token is a simple integer offset (stringified)
 - Default page size: 100 (if not specified)
-- Results are not guaranteed to be ordered (Go map iteration is non-deterministic)
+- `ListSecrets` returns results in stable alphabetical order by name on every call
+- `ListSecretVersions` returns versions in ascending numeric order (1, 2, 3, ..., 10, 11)
 
 ## Deployment Modes
 
@@ -565,7 +566,9 @@ Potential features if needed by the community:
 1. **Persistence** - Optional file-based storage for long-running instances
 2. **Metrics** - Prometheus-style metrics for monitoring
 3. **Multiple Projects** - Currently all secrets in one project
-4. **IAM Methods** - SetIamPolicy, GetIamPolicy for access control testing
+4. **IAM Enforcement** - Pre-flight permission checks via IAM Emulator control
+   plane are available today (v1.2.0+). Per-resource IAM policy methods
+   (SetIamPolicy, GetIamPolicy) are not planned — see ROADMAP.md.
 
 ## References
 
