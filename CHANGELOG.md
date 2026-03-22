@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-22
+
 ### Fixed
 - REST `UpdateSecret` (PATCH) now correctly forwards the `update_mask` query
   parameter to the gRPC layer. Previously the field mask was never set on the
@@ -179,7 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.0...v1.2.1
