@@ -49,7 +49,11 @@ func startTestGateway(t *testing.T) (string, func()) {
 
 	grpcServer, grpcAddr := startTestGRPCServer(t)
 
-	gw := NewServer(grpcAddr)
+	gw, err := NewServer(grpcAddr)
+	if err != nil {
+		grpcServer.GracefulStop()
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Listen on a random port for the HTTP gateway
 	lis, err := net.Listen("tcp", "localhost:0")
@@ -239,15 +243,17 @@ func TestUpdateSecret(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		body := `{"labels":{"env":"test"}}`
-		resp := doRequest(t, http.MethodPatch, baseURL+"/v1/projects/test-project/secrets/update-test", body)
+		resp := doRequest(t, http.MethodPatch,
+			baseURL+"/v1/projects/test-project/secrets/update-test?update_mask=labels",
+			body)
 		respBody := readBody(t, resp)
 
-		// The gateway sends UpdateSecretRequest without an update_mask,
-		// which the gRPC server rejects as InvalidArgument. The gateway
-		// returns this as a 500 since it doesn't translate gRPC codes.
-		// This test verifies the gateway correctly parses and forwards the request.
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("UpdateSecret status = %d, want %d; body = %s", resp.StatusCode, http.StatusInternalServerError, respBody)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("UpdateSecret status = %d, want %d; body = %s",
+				resp.StatusCode, http.StatusOK, respBody)
+		}
+		if !strings.Contains(respBody, `"env":"test"`) {
+			t.Errorf("UpdateSecret response missing updated label: %s", respBody)
 		}
 	})
 
@@ -290,8 +296,8 @@ func TestDeleteSecret(t *testing.T) {
 		resp := doRequest(t, http.MethodDelete, baseURL+"/v1/projects/test-project/secrets/nonexistent", "")
 		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("DeleteSecret nonexistent status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("DeleteSecret nonexistent status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 		}
 	})
 }
@@ -405,8 +411,8 @@ func TestAddSecretVersion(t *testing.T) {
 		resp := doRequest(t, http.MethodPost, baseURL+"/v1/projects/test-project/secrets/nonexistent:addVersion", body)
 		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("AddSecretVersion nonexistent secret status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("AddSecretVersion nonexistent secret status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 		}
 	})
 }
@@ -621,7 +627,10 @@ func TestDestroySecretVersion(t *testing.T) {
 func TestGatewayStartStop(t *testing.T) {
 	_, grpcAddr := startTestGRPCServer(t)
 
-	gw := NewServer(grpcAddr)
+	gw, err := NewServer(grpcAddr)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	// Stop before Start — should return nil (httpServer is nil).
 	ctx := context.Background()
@@ -791,6 +800,34 @@ func TestAccessSecretVersion_ErrorPaths(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
 			t.Errorf("AccessSecretVersion disabled version: got 200, want error")
+		}
+	})
+}
+
+func TestGRPCStatusMapping(t *testing.T) {
+	baseURL, cleanup := startTestGateway(t)
+	defer cleanup()
+
+	t.Run("NotFound returns 404", func(t *testing.T) {
+		resp := doRequest(t, http.MethodGet,
+			baseURL+"/v1/projects/test-project/secrets/does-not-exist", "")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GetSecret nonexistent = %d, want 404", resp.StatusCode)
+		}
+	})
+
+	t.Run("NotFound version returns 404", func(t *testing.T) {
+		// Create a secret but do not add a version
+		doRequest(t, http.MethodPost,
+			baseURL+"/v1/projects/test-project/secrets?secretId=noversion-secret",
+			`{"replication":{"automatic":{}}}`)
+		resp := doRequest(t, http.MethodGet,
+			baseURL+"/v1/projects/test-project/secrets/noversion-secret/versions/99",
+			"")
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GetSecretVersion nonexistent = %d, want 404", resp.StatusCode)
 		}
 	})
 }
