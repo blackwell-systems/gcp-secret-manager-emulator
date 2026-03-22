@@ -75,13 +75,17 @@ func main() {
 
 	// Start REST gateway
 	httpAddr := fmt.Sprintf(":%d", *httpPort)
-	gateway := gateway.NewServer(grpcAddr)
+	var gatewayServer *gateway.Server
+	gatewayServer, err = gateway.NewServer(grpcAddr)
+	if err != nil {
+		log.Fatalf("Failed to create REST gateway: %v", err)
+	}
 
 	go func() {
 		log.Printf("HTTP gateway listening at %s", httpAddr)
 		log.Printf("Ready to accept REST requests")
 		log.Printf("Example: curl http://localhost:%d/v1/projects/test-project/secrets", *httpPort)
-		if err := gateway.Start(ctx, httpAddr); err != nil {
+		if err := gatewayServer.Start(ctx, httpAddr); err != nil {
 			log.Fatalf("Failed to serve HTTP: %v", err)
 		}
 	}()
@@ -94,7 +98,7 @@ func main() {
 	log.Println("Shutting down servers...")
 
 	// Shutdown REST gateway
-	if err := gateway.Stop(ctx); err != nil {
+	if err := gatewayServer.Stop(ctx); err != nil {
 		log.Printf("Error stopping HTTP gateway: %v", err)
 	}
 

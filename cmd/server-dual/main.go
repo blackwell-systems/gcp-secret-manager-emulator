@@ -73,7 +73,11 @@ func main() {
 
 	// Start REST gateway
 	httpAddr := fmt.Sprintf(":%d", *httpPort)
-	gatewayServer := gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+	var gatewayServer *gateway.Server
+	gatewayServer, err = gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+	if err != nil {
+		log.Fatalf("Failed to create REST gateway: %v", err)
+	}
 
 	go func() {
 		log.Printf("HTTP gateway listening at %s", httpAddr)
