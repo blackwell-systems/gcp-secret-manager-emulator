@@ -14,9 +14,12 @@ import (
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 // Server represents the REST gateway server
@@ -28,19 +31,44 @@ type Server struct {
 }
 
 // NewServer creates a new REST gateway server that proxies to a gRPC server
-func NewServer(grpcAddr string) *Server {
+func NewServer(grpcAddr string) (*Server, error) {
 	// Connect to gRPC server
 	conn, err := grpc.NewClient(
 		grpcAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		panic(fmt.Sprintf("failed to dial gRPC server: %v", err))
+		return nil, fmt.Errorf("failed to dial gRPC server: %w", err)
 	}
 
 	return &Server{
 		grpcClient: secretmanagerpb.NewSecretManagerServiceClient(conn),
 		conn:       conn,
+	}, nil
+}
+
+// grpcStatusToHTTP maps a gRPC status error to the correct HTTP status code.
+func grpcStatusToHTTP(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return http.StatusInternalServerError
+	}
+	switch st.Code() {
+	case codes.NotFound:
+		return http.StatusNotFound
+	case codes.AlreadyExists:
+		return http.StatusConflict
+	case codes.InvalidArgument, codes.FailedPrecondition:
+		return http.StatusBadRequest
+	case codes.PermissionDenied:
+		return http.StatusForbidden
+	case codes.Unauthenticated:
+		return http.StatusUnauthorized
+	default:
+		return http.StatusInternalServerError
 	}
 }
 
@@ -239,7 +267,7 @@ func (s *Server) listSecrets(ctx context.Context, w http.ResponseWriter, r *http
 
 	resp, err := s.grpcClient.ListSecrets(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -266,7 +294,7 @@ func (s *Server) createSecret(ctx context.Context, w http.ResponseWriter, r *htt
 
 	resp, err := s.grpcClient.CreateSecret(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -279,7 +307,7 @@ func (s *Server) getSecret(ctx context.Context, w http.ResponseWriter, r *http.R
 
 	resp, err := s.grpcClient.GetSecret(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -298,13 +326,20 @@ func (s *Server) updateSecret(ctx context.Context, w http.ResponseWriter, r *htt
 
 	secret.Name = name
 
+	updateMaskStr := r.URL.Query().Get("update_mask")
+	var mask *fieldmaskpb.FieldMask
+	if updateMaskStr != "" {
+		mask = &fieldmaskpb.FieldMask{Paths: strings.Split(updateMaskStr, ",")}
+	}
+
 	req := &secretmanagerpb.UpdateSecretRequest{
-		Secret: &secret,
+		Secret:     &secret,
+		UpdateMask: mask,
 	}
 
 	resp, err := s.grpcClient.UpdateSecret(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -316,7 +351,7 @@ func (s *Server) deleteSecret(ctx context.Context, w http.ResponseWriter, r *htt
 
 	_, err := s.grpcClient.DeleteSecret(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -355,7 +390,7 @@ func (s *Server) addSecretVersion(ctx context.Context, w http.ResponseWriter, r 
 
 	resp, err := s.grpcClient.AddSecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -371,7 +406,7 @@ func (s *Server) listSecretVersions(ctx context.Context, w http.ResponseWriter, 
 
 	resp, err := s.grpcClient.ListSecretVersions(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -383,7 +418,7 @@ func (s *Server) getSecretVersion(ctx context.Context, w http.ResponseWriter, r 
 
 	resp, err := s.grpcClient.GetSecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -395,7 +430,7 @@ func (s *Server) accessSecretVersion(ctx context.Context, w http.ResponseWriter,
 
 	resp, err := s.grpcClient.AccessSecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -407,7 +442,7 @@ func (s *Server) enableSecretVersion(ctx context.Context, w http.ResponseWriter,
 
 	resp, err := s.grpcClient.EnableSecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -419,7 +454,7 @@ func (s *Server) disableSecretVersion(ctx context.Context, w http.ResponseWriter
 
 	resp, err := s.grpcClient.DisableSecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
@@ -431,7 +466,7 @@ func (s *Server) destroySecretVersion(ctx context.Context, w http.ResponseWriter
 
 	resp, err := s.grpcClient.DestroySecretVersion(ctx, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
 		return
 	}
 
