@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- REST `UpdateSecret` (PATCH) now correctly forwards the `update_mask` query
+  parameter to the gRPC layer. Previously the field mask was never set on the
+  request, causing every PATCH to return an error regardless of payload.
+- REST gateway now returns correct HTTP status codes for gRPC errors. Previously
+  all gRPC errors mapped to 500; correct mapping is now enforced:
+  `NotFound`→404, `AlreadyExists`→409, `InvalidArgument`/`FailedPrecondition`→400,
+  `PermissionDenied`→403, `Unauthenticated`→401. **Behavior change**: HTTP
+  clients that branched on 500 for not-found or permission errors must update
+  their error handling.
+- `GetSecret` and `GetSecretVersion` previously hardcoded 404 for all errors,
+  masking `PermissionDenied` and internal errors as not-found responses. Both
+  now use the correct HTTP status code derived from the gRPC status.
+- `gateway.NewServer` no longer panics on gRPC dial failure. It now returns
+  `(*Server, error)` so callers can handle startup failures gracefully.
 - REST gateway (`server-dual`, `server-rest`) now correctly propagates the
   `X-Emulator-Principal` header to the gRPC layer. Previously the header was
   silently dropped, effectively bypassing IAM enforcement for all HTTP clients
