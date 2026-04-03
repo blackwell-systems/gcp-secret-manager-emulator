@@ -1517,5 +1517,5 @@ critic_report:
     summary: 'All 6 checks pass. Warning resolved: IAM RPCs are part of SecretManagerService proto (not a separate IAMPolicyServer), so implementing them on *Server is sufficient — no register.go changes needed.'
     reviewed_at: "2026-04-03T19:10:30Z"
     issue_count: 0
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
