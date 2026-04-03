@@ -7,13 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-03
+
+### Changed
+- **REST gateway migrated from hand-rolled HTTP to grpc-gateway v2** — HTTP handlers are now auto-generated from the Secret Manager proto definitions, ensuring full API compatibility with real GCP
+
 ### Added
 - `Register()` composition hook for unified `gcp-emulator`
 - `NewGatewayHandler()` for mounting SM REST gateway in unified HTTP server
 - `gateway.Handler()` method for embedding in parent HTTP multiplexer
+- `/healthz` and `/readyz` health endpoints on REST gateway
+- `jsonErrorHandler` returns clean 400 for malformed JSON bodies
+- `buf.gen.yaml` for reproducible grpc-gateway stub generation
 
 ### Fixed
+- REST gateway now returns correct HTTP status codes: NotFound→404, AlreadyExists→409, InvalidArgument→400, PermissionDenied→403 (previously all mapped to 500)
+- REST gateway now returns structured GCP-format error responses (`{"code":N,"message":"..."}`)
+- Malformed JSON request bodies now return 400 instead of being silently accepted
 - `Register()` no longer calls `reflection.Register`, preventing fatal duplicate registration when composing multiple emulators
+
+### Removed
+- Hand-rolled HTTP gateway (480 lines, replaced by ~80 lines of grpc-gateway wiring)
+- `gateway_test.go` (REST coverage now in gcp-emulator integration tests)
 
 ## [1.4.0] - 2026-03-22
 
