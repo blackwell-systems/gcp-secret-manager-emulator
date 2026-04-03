@@ -7,3 +7,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-docs-fixes.yaml
 - **gateway-tier1-fixes**: completed 2026-03-21, 2 waves, 3 agents
   - IMPL doc: docs/IMPL/complete/IMPL-gateway-tier1-fixes.yaml
+- **conformance-fixes**: completed 2026-04-03, 2 waves, 3 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-conformance-fixes.yaml

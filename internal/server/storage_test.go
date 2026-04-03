@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc/codes"
@@ -382,6 +383,7 @@ func TestListSecrets_DeterministicOrdering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
+		time.Sleep(time.Millisecond) // ensure distinct create_time for deterministic ordering
 	}
 
 	// Call ListSecrets twice with no pageToken

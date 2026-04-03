@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-03
+
+### Added
+- `GetIamPolicy`, `SetIamPolicy`, `TestIamPermissions` — in-memory IAM policy store per resource; standard SDK policy management now works
+- Etag on `Secret` and `SecretVersion` — generated on create, refreshed on update; validated on `DeleteSecret`, `UpdateSecret`, `Enable/Disable/DestroySecretVersion` (returns `ABORTED` on mismatch)
+- `SecretVersion.destroy_time` — recorded when `DestroySecretVersion` is called
+- `SecretPayload.data_crc32c` — verified on `AddSecretVersion` (returns `DATA_LOSS` on mismatch), stored, and returned in `AccessSecretVersionResponse`
+- `version_aliases` — user-defined aliases stored via `UpdateSecret`; resolved in `GetSecretVersion` and `AccessSecretVersion`
+- `ListSecrets` filter — supports `name:` prefix and `labels.key=value` expressions
+
+### Changed
+- `ListSecrets` default sort order changed to descending create_time (matches real GCP API)
+- `ListSecretVersions` default sort order changed to descending version number
+- `ListSecrets` and `ListSecretVersions` now return `total_size` (count before pagination)
+- 14 new conformance tests covering all 6 critical fixes
+
 ## [1.6.0] - 2026-04-03
 
 ### Changed

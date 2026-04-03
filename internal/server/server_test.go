@@ -1515,7 +1515,7 @@ func TestServer_UpdateSecret_EtagValidation(t *testing.T) {
 
 	// Wrong etag: expect Aborted
 	_, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
-		Secret: &secretmanagerpb.Secret{Name: created.Name, Etag: "wrong"},
+		Secret:     &secretmanagerpb.Secret{Name: created.Name, Etag: "wrong"},
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"labels"}},
 	})
 	if err == nil {

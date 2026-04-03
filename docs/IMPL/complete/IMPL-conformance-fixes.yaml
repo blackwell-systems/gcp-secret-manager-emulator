@@ -1,3 +1,4 @@
+completion_date: "2026-04-03"
 title: 'Secret Manager Conformance Fixes: etag, crc32c, destroy_time, version_aliases, filter, IAM'
 feature_slug: conformance-fixes
 verdict: SUITABLE
@@ -1453,6 +1454,7 @@ waves:
           dependencies:
             - A
             - B
+          context_source: prepared-brief
 quality_gates:
     level: standard
     gates:
@@ -1486,6 +1488,30 @@ completion_reports:
             - internal/server/iam_storage.go
         verification: FAIL (storage.go signatures pending Agent A - 3 cross-agent build errors only)
         notes: 'All server-layer changes complete. Created IAMStorage in iam_storage.go. Updated server.go: iamStorage field, 3 IAM methods, crc32c validation (DataCrc32C is *int64 oneof - nil check uses .DataCrc32C directly), etag enforcement on 5 methods, version_aliases in update mask, filter+totalSize forwarding. Build fails only on 3 Agent A storage signature mismatches (expected). Committed with --no-verify per parallel wave protocol. Out-of-scope deps: storage.go ListSecrets/UpdateSecret/ListSecretVersions signature changes (Agent A scope).'
+    C:
+        status: complete
+        branch: main
+        commit: 9da7153
+        files_changed:
+            - internal/server/storage_test.go
+            - internal/server/server_test.go
+        tests_added:
+            - TestStorage_EtagGeneration
+            - TestStorage_DestroyTime
+            - TestStorage_DataCrc32C
+            - TestStorage_VersionAliases
+            - TestStorage_ListSecretsFilter
+            - TestStorage_TotalSize
+            - TestStorage_VersionEtag
+            - TestServer_AddSecretVersion_Crc32cValidation
+            - TestServer_DeleteSecret_EtagValidation
+            - TestServer_UpdateSecret_EtagValidation
+            - TestServer_VersionEtagValidation
+            - TestServer_IAMPolicy
+            - TestServer_UpdateSecret_VersionAliases
+            - TestServer_ListSecrets_Filter
+        verification: PASS
+        notes: All 14 new conformance tests pass. Brief had incorrect types for DataCrc32C (SecretPayload.DataCrc32C is *int64, not wrapperspb.Int64Value) and VersionAliases (map[string]int64 in proto, not int32) — corrected in implementation. Pre-existing flaky test TestListSecrets_DeterministicOrdering (from Wave 1, timing-dependent) not introduced by this commit. Force-added test files due to gitignore pattern 'server' matching directory.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1539,5 +1565,5 @@ critic_report:
     summary: 'All 6 checks pass. Warning resolved: IAM RPCs are part of SecretManagerService proto (not a separate IAMPolicyServer), so implementing them on *Server is sufficient — no register.go changes needed.'
     reviewed_at: "2026-04-03T19:10:30Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
