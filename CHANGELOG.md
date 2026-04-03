@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Register()` composition hook for unified `gcp-emulator`
+- `NewGatewayHandler()` for mounting SM REST gateway in unified HTTP server
+- `gateway.Handler()` method for embedding in parent HTTP multiplexer
+
 ## [1.4.0] - 2026-03-22
 
 ### Fixed
