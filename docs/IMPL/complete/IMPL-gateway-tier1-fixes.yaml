@@ -1,0 +1,482 @@
+completion_date: "2026-03-21"
+title: Gateway Tier-1 Bug Fixes
+feature_slug: gateway-tier1-fixes
+verdict: SUITABLE
+suitability_assessment: |
+    All four bugs are confirmed in internal/gateway/gateway.go with exact line
+    references and known fixes. No root-cause investigation is needed.
+
+    File decomposition: 4 distinct files change across 3 agents with disjoint
+    ownership. Wave 1 has a single agent (E) owning gateway.go — the only file
+    with all four bugs. Wave 2 parallelizes two agents: F owns gateway_test.go
+    and G owns the two cmd entry points. No two agents in the same wave touch
+    the same file.
+
+    Interface contract: BUG-4 changes NewServer from `func NewServer(grpcAddr string)
+    *Server` to `func NewServer(grpcAddr string) (*Server, error)`. This is the
+    single cross-agent boundary. Agent F (tests) and Agent G (cmd mains) both
+    depend on this new signature, so they are in Wave 2 after Agent E completes.
+
+    Interface discoverability: the new signature is fully specifiable before
+    implementation starts — no unknowns.
+
+    Parallelization value: build+test cycle for a Go project with integration-style
+    gateway tests is moderate (~15-30s). Wave 2 runs two agents in parallel, each
+    touching separate files. Clear benefit over sequential execution.
+
+    Pre-implementation check:
+    - BUG-1 (update_mask): TODO — UpdateSecretRequest built with no UpdateMask field.
+    - BUG-2 (gRPC→HTTP mapping): TODO — every error handler uses http.StatusInternalServerError.
+    - BUG-3 (getSecret/getSecretVersion hardcode 404): TODO — confirmed at lines 282 and 386.
+    - BUG-4 (NewServer panic): TODO — confirmed panic at line 38.
+
+    gateway_test.go already exists as an untracked file. The test at line 249
+    explicitly documents the BUG-1/BUG-2 breakage (expects 500 with a comment
+    explaining why). Agent F must update that test to assert 200 after the fix,
+    plus add grpcStatusToHTTP coverage.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: Wave 1 ~15 min (1 agent, ~10 file edits); Wave 2 ~10 min
+      (2 parallel agents, 3 files total)
+    - Merge and verification: ~3 min
+    Total SAW time: ~36 min
+
+    Sequential baseline: ~40 min (3 agents × ~13 min avg sequential)
+    Time savings: ~4 min (marginal speed gain; primary value is coordination and
+    interface spec clarity across the three-file update).
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/gateway/gateway.go
+      agent: E
+      wave: 1
+      action: modify
+    - file: internal/gateway/gateway_test.go
+      agent: F
+      wave: 2
+      action: modify
+      depends_on:
+        - E
+    - file: cmd/server-rest/main.go
+      agent: G
+      wave: 2
+      action: modify
+      depends_on:
+        - E
+    - file: cmd/server-dual/main.go
+      agent: G
+      wave: 2
+      action: modify
+      depends_on:
+        - E
+interface_contracts:
+    - name: NewServer
+      description: |-
+        Returns (*Server, error) instead of *Server. Callers must handle the
+        error and call log.Fatalf on non-nil err. This is the only cross-agent
+        boundary — Agent F and Agent G both consume this new signature.
+      definition: |
+        func NewServer(grpcAddr string) (*Server, error)
+      location: internal/gateway/gateway.go
+    - name: grpcStatusToHTTP
+      description: |-
+        Package-level helper that maps a gRPC status error to the correct HTTP
+        status code. Used by all error paths in gateway.go. Not exported; only
+        consumed within the same file.
+      definition: |
+        func grpcStatusToHTTP(err error) int
+        // codes.NotFound        -> 404
+        // codes.AlreadyExists   -> 409
+        // codes.InvalidArgument -> 400
+        // codes.FailedPrecondition -> 400
+        // codes.PermissionDenied -> 403
+        // codes.Unauthenticated -> 401
+        // default               -> 500
+      location: internal/gateway/gateway.go
+waves:
+    - number: 1
+      agents:
+        - id: E
+          task: |
+            ## Role
+            Fix all four confirmed bugs in internal/gateway/gateway.go.
+
+            ## What to implement
+
+            ### BUG-1: updateSecret — forward update_mask query parameter
+            In `updateSecret()` (around line 301), after parsing the request body,
+            read the `update_mask` query parameter:
+
+            ```go
+            updateMaskStr := r.URL.Query().Get("update_mask")
+            ```
+
+            If non-empty, construct a FieldMask and set it on the request:
+
+            ```go
+            import "google.golang.org/protobuf/types/known/fieldmaskpb"
+
+            var mask *fieldmaskpb.FieldMask
+            if updateMaskStr != "" {
+                mask = &fieldmaskpb.FieldMask{Paths: strings.Split(updateMaskStr, ",")}
+            }
+
+            req := &secretmanagerpb.UpdateSecretRequest{
+                Secret:     &secret,
+                UpdateMask: mask,
+            }
+            ```
+
+            Also replace the `http.StatusInternalServerError` in updateSecret's
+            error path with `grpcStatusToHTTP(err)` (see BUG-2 below).
+
+            ### BUG-2: add grpcStatusToHTTP helper and replace all 500 hardcodes
+            Add this package-level helper near the top of the file (after the
+            Server struct, before the handlers):
+
+            ```go
+            import (
+                "google.golang.org/grpc/codes"
+                "google.golang.org/grpc/status"
+            )
+
+            func grpcStatusToHTTP(err error) int {
+                if err == nil {
+                    return http.StatusOK
+                }
+                st, ok := status.FromError(err)
+                if !ok {
+                    return http.StatusInternalServerError
+                }
+                switch st.Code() {
+                case codes.NotFound:
+                    return http.StatusNotFound
+                case codes.AlreadyExists:
+                    return http.StatusConflict
+                case codes.InvalidArgument, codes.FailedPrecondition:
+                    return http.StatusBadRequest
+                case codes.PermissionDenied:
+                    return http.StatusForbidden
+                case codes.Unauthenticated:
+                    return http.StatusUnauthorized
+                default:
+                    return http.StatusInternalServerError
+                }
+            }
+            ```
+
+            Replace every `http.StatusInternalServerError` that follows an `err`
+            returned from a gRPC client call with `grpcStatusToHTTP(err)`. Do NOT
+            replace the 500s in writeProtoJSON (those are local marshal errors, not
+            gRPC errors). Affected functions:
+            - listSecrets
+            - createSecret
+            - updateSecret
+            - deleteSecret
+            - addSecretVersion
+            - listSecretVersions
+            - accessSecretVersion
+            - enableSecretVersion
+            - disableSecretVersion
+            - destroySecretVersion
+
+            ### BUG-3: getSecret and getSecretVersion replace hardcoded 404
+            In `getSecret()` (line 282), change:
+              `http.StatusNotFound` → `grpcStatusToHTTP(err)`
+
+            In `getSecretVersion()` (line 386), change:
+              `http.StatusNotFound` → `grpcStatusToHTTP(err)`
+
+            ### BUG-4: NewServer returns (*Server, error) instead of panicking
+            Change the function signature from:
+              `func NewServer(grpcAddr string) *Server`
+            to:
+              `func NewServer(grpcAddr string) (*Server, error)`
+
+            Replace the panic with a returned error:
+            ```go
+            if err != nil {
+                return nil, fmt.Errorf("failed to dial gRPC server: %w", err)
+            }
+            return &Server{
+                grpcClient: secretmanagerpb.NewSecretManagerServiceClient(conn),
+                conn:       conn,
+            }, nil
+            ```
+
+            ## Imports
+            Add to the import block:
+            - `"google.golang.org/grpc/codes"`
+            - `"google.golang.org/grpc/status"`
+            - `"google.golang.org/protobuf/types/known/fieldmaskpb"`
+
+            Both grpc/codes and grpc/status are already indirect dependencies via
+            google.golang.org/grpc v1.78.0 in go.mod. fieldmaskpb is part of
+            google.golang.org/protobuf v1.36.11, already a direct dependency.
+            No go.mod changes are needed.
+
+            ## Verification gate
+            ```
+            gofmt -l internal/gateway/gateway.go
+            go build ./...
+            go vet ./...
+            go test ./internal/gateway/...
+            ```
+
+            ## Constraints
+            - Do not modify gateway_test.go — that is Agent F's file.
+            - Do not modify any cmd/ files — that is Agent G's file.
+            - Do not replace the http.StatusInternalServerError inside writeProtoJSON;
+              those are marshal errors unrelated to gRPC status codes.
+            - Run gofmt on the file before finishing; CI enforces formatting.
+          files:
+            - internal/gateway/gateway.go
+    - number: 2
+      agents:
+        - id: F
+          task: |
+            ## Role
+            Update internal/gateway/gateway_test.go to reflect all four gateway
+            bug fixes landed by Agent E in Wave 1.
+
+            ## What to implement
+
+            ### startTestGateway — update NewServer call site (BUG-4)
+            At line 52, `NewServer(grpcAddr)` now returns `(*Server, error)`.
+            Update the call:
+            ```go
+            gw, err := NewServer(grpcAddr)
+            if err != nil {
+                grpcServer.GracefulStop()
+                t.Fatalf("NewServer failed: %v", err)
+            }
+            ```
+
+            ### TestUpdateSecret/Success — fix broken assertion (BUG-1 + BUG-2)
+            The test at line 240 currently sends a PATCH without an update_mask
+            and asserts `http.StatusInternalServerError` (with a comment explaining
+            the bug). After the fix, a PATCH with a valid update_mask query param
+            should succeed with 200.
+
+            Replace the "Success" sub-test body:
+            ```go
+            t.Run("Success", func(t *testing.T) {
+                body := `{"labels":{"env":"test"}}`
+                resp := doRequest(t, http.MethodPatch,
+                    baseURL+"/v1/projects/test-project/secrets/update-test?update_mask=labels",
+                    body)
+                respBody := readBody(t, resp)
+
+                if resp.StatusCode != http.StatusOK {
+                    t.Errorf("UpdateSecret status = %d, want %d; body = %s",
+                        resp.StatusCode, http.StatusOK, respBody)
+                }
+                if !strings.Contains(respBody, `"env":"test"`) {
+                    t.Errorf("UpdateSecret response missing updated label: %s", respBody)
+                }
+            })
+            ```
+
+            ### TestDeleteSecret/DeleteNonexistent — fix broken assertion (BUG-2)
+            At line 293, the test expects 500 for deleting a nonexistent secret.
+            After BUG-2, codes.NotFound maps to 404. Update:
+            ```go
+            if resp.StatusCode != http.StatusNotFound {
+                t.Errorf("DeleteSecret nonexistent status = %d, want %d",
+                    resp.StatusCode, http.StatusNotFound)
+            }
+            ```
+
+            ### Add TestGRPCStatusMapping
+            Add a new test function that exercises grpcStatusToHTTP indirectly
+            via the HTTP layer:
+            ```go
+            func TestGRPCStatusMapping(t *testing.T) {
+                baseURL, cleanup := startTestGateway(t)
+                defer cleanup()
+
+                t.Run("NotFound returns 404", func(t *testing.T) {
+                    resp := doRequest(t, http.MethodGet,
+                        baseURL+"/v1/projects/test-project/secrets/does-not-exist", "")
+                    defer resp.Body.Close()
+                    if resp.StatusCode != http.StatusNotFound {
+                        t.Errorf("GetSecret nonexistent = %d, want 404", resp.StatusCode)
+                    }
+                })
+
+                t.Run("NotFound version returns 404", func(t *testing.T) {
+                    // Create a secret but do not add a version
+                    doRequest(t, http.MethodPost,
+                        baseURL+"/v1/projects/test-project/secrets?secretId=noversion-secret",
+                        `{"replication":{"automatic":{}}}`)
+                    resp := doRequest(t, http.MethodGet,
+                        baseURL+"/v1/projects/test-project/secrets/noversion-secret/versions/99",
+                        "")
+                    defer resp.Body.Close()
+                    if resp.StatusCode != http.StatusNotFound {
+                        t.Errorf("GetSecretVersion nonexistent = %d, want 404", resp.StatusCode)
+                    }
+                })
+            }
+            ```
+
+            ## Verification gate
+            ```
+            gofmt -l internal/gateway/gateway_test.go
+            go build ./...
+            go vet ./...
+            go test ./internal/gateway/...
+            ```
+
+            ## Constraints
+            - Do not modify gateway.go — that is Agent E's file.
+            - Do not modify any cmd/ files — that is Agent G's file.
+            - Do not remove existing test functions; only update assertions and
+              add new ones.
+            - Run gofmt before finishing.
+          files:
+            - internal/gateway/gateway_test.go
+          dependencies:
+            - E
+        - id: G
+          task: |
+            ## Role
+            Update both cmd entry points so they handle the new `(*Server, error)`
+            return from gateway.NewServer (BUG-4 caller fix).
+
+            ## What to implement
+
+            ### cmd/server-rest/main.go
+            At line 78, the call is:
+            ```go
+            gateway := gateway.NewServer(grpcAddr)
+            ```
+            Replace with:
+            ```go
+            gateway, err := gateway.NewServer(grpcAddr)
+            if err != nil {
+                log.Fatalf("Failed to create REST gateway: %v", err)
+            }
+            ```
+
+            Note: `err` is already declared earlier in main (line 55 for net.Listen
+            and line 61 for server.NewServer), so use plain assignment `=`, not `:=`.
+
+            ### cmd/server-dual/main.go
+            At line 76, the call is:
+            ```go
+            gatewayServer := gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+            ```
+            Replace with:
+            ```go
+            gatewayServer, err := gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+            if err != nil {
+                log.Fatalf("Failed to create REST gateway: %v", err)
+            }
+            ```
+
+            Same note: `err` is already in scope, use `=` not `:=`.
+
+            ## Verification gate
+            ```
+            gofmt -l cmd/server-rest/main.go cmd/server-dual/main.go
+            go build ./cmd/server-rest/...
+            go build ./cmd/server-dual/...
+            go vet ./cmd/...
+            ```
+
+            ## Constraints
+            - Do not modify gateway.go — that is Agent E's file.
+            - Do not modify gateway_test.go — that is Agent F's file.
+            - Only change the NewServer call sites; do not refactor other logic.
+            - Run gofmt before finishing.
+          files:
+            - cmd/server-rest/main.go
+            - cmd/server-dual/main.go
+          dependencies:
+            - E
+quality_gates:
+    level: standard
+    gates:
+        - type: format
+          command: gofmt -l .
+          required: true
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+completion_reports:
+    E:
+        status: complete
+        branch: main
+        commit: 8a72d96
+        files_changed:
+            - internal/gateway/gateway.go
+        verification: PASS
+    F:
+        status: complete
+        branch: main
+        commit: 7c4f4b6
+        files_changed:
+            - internal/gateway/gateway_test.go
+        tests_added:
+            - TestGRPCStatusMapping/NotFound_returns_404
+            - TestGRPCStatusMapping/NotFound_version_returns_404
+        verification: PASS
+    G:
+        status: complete
+        branch: main
+        commit: f85f62b
+        files_changed:
+            - cmd/server-rest/main.go
+            - cmd/server-dual/main.go
+        verification: PASS
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: |-
+            Agent F updates TestUpdateSecret/Success to send update_mask=labels but
+            the gRPC server rejects the mask value for a reason not covered in the bug
+            report (e.g., unknown field path). Test would still fail after fix.
+          likelihood: low
+          impact: medium
+          mitigation: |-
+            Agent F should read server.go line 164 and the UpdateSecret handler to
+            confirm which field paths are accepted before writing the assertion. If the
+            server validates paths strictly, use a known-valid path such as "labels".
+        - scenario: |-
+            Agent G uses := instead of = for the err variable on the NewServer call,
+            causing a compile error ("no new variables on left side of :=") because
+            err is already declared in the same scope.
+          likelihood: medium
+          impact: low
+          mitigation: |-
+            Agent G task prompt explicitly calls out this scoping issue and instructs
+            use of plain assignment =. Verification gate (`go build ./cmd/...`) will
+            catch this before the agent reports completion.
+        - scenario: |-
+            gofmt CI gate fails because one agent forgets to run gofmt before
+            finishing. The post-merge `gofmt -l .` gate will catch this but block
+            the merge.
+          likelihood: low
+          impact: low
+          mitigation: |-
+            Each agent's verification gate includes `gofmt -l <file>` as the first
+            step. Orchestrator runs `gofmt -l .` post-merge as a quality gate.
+        - scenario: |-
+            fieldmaskpb import is not resolved because go.sum is stale or the
+            indirect dependency is not actually available as a direct import.
+          likelihood: low
+          impact: medium
+          mitigation: |-
+            fieldmaskpb is part of google.golang.org/protobuf which is already a
+            direct dependency in go.mod v1.36.11. No go get needed. Agent E's
+            verification gate (`go build ./...`) will surface any import issue
+            immediately.
+state: SCOUT_PENDING

@@ -1,0 +1,1308 @@
+title: 'Correctness Fixes: Storage, Gateway, and Minor Cleanup'
+feature_slug: correctness-fixes
+verdict: SUITABLE
+suitability_assessment: |-
+  All 19 findings are confirmed bugs and correctness gaps in the existing codebase.
+  File decomposition is clean: 9 agents across 3 waves with fully disjoint ownership.
+  Interfaces are discoverable (parseStateFilter signature change, NewServer signature change,
+  resolveLatestVersionAny addition) and can be specified before implementation.
+  No investigation-first work is required.
+
+  Wave structure:
+  - Wave 1 (5 parallel agents): Foundation changes in storage.go, server.go, version.go,
+    storage_coverage_test.go, server_coverage_test.go. Agents A/B/I are independent;
+    C depends on A's storage.go changes; D depends on B's server.go changes.
+    Since C and D only fix tests that assert wrong behavior, they can be authored in
+    Wave 1 alongside A and B because the test changes are already fully specified by
+    the findings — agents C and D know exactly what assertions to flip.
+  - Wave 2 (1 agent): gateway.go — BUG-2 through BUG-5, GAP-8, GAP-9, MIN-3, MIN-4,
+    MIN-6. Depends on Wave 1 completing (version.go from Agent I is imported).
+  - Wave 3 (2 parallel agents): gateway_test.go and cmd main files — depend on Wave 2's
+    NewServer(*Server, error) signature and grpcStatusToHTTP helper being stable.
+
+  Parallelization value: HIGH. Build+test cycle is go test ./... on a Go module with
+  gRPC integration tests. Estimated 30-60 seconds per agent cycle. 9 agents with
+  non-trivial logic changes across 14 files.
+
+  Estimated times:
+  - Scout phase: ~10 min
+  - Agent execution: Wave 1 ~5 agents x 12 min avg = 12 min wall time (parallel);
+    Wave 2 ~1 agent x 15 min; Wave 3 ~2 agents x 10 min = 10 min wall time
+  - Merge and verification: ~5 min
+  Total SAW time: ~52 min
+  Sequential baseline: ~9 agents x 15 min avg = 135 min
+  Time savings: ~83 min (62% faster)
+test_command: go test ./...
+lint_command: go vet ./...
+state: SCOUT_PENDING
+
+quality_gates:
+  level: standard
+  gates:
+    - type: build
+      command: go build ./...
+      required: true
+    - type: lint
+      command: go vet ./...
+      required: true
+    - type: test
+      command: go test ./...
+      required: true
+    - type: format
+      command: gofmt -l .
+      required: false
+
+scaffolds: []
+
+file_ownership:
+  - file: internal/version/version.go
+    agent: I
+    wave: 1
+    action: new
+    depends_on: []
+
+  - file: internal/server/storage.go
+    agent: A
+    wave: 1
+    action: modify
+    depends_on: []
+
+  - file: internal/server/server.go
+    agent: B
+    wave: 1
+    action: modify
+    depends_on: []
+
+  - file: internal/server/storage_coverage_test.go
+    agent: C
+    wave: 1
+    action: modify
+    depends_on: []
+
+  - file: internal/server/server_coverage_test.go
+    agent: D
+    wave: 1
+    action: modify
+    depends_on: []
+
+  - file: internal/gateway/gateway.go
+    agent: E
+    wave: 2
+    action: modify
+    depends_on: [I, A, B]
+
+  - file: internal/gateway/gateway_test.go
+    agent: F
+    wave: 3
+    action: modify
+    depends_on: [E]
+
+  - file: cmd/server-rest/main.go
+    agent: G
+    wave: 3
+    action: modify
+    depends_on: [E, I]
+
+  - file: cmd/server-dual/main.go
+    agent: G
+    wave: 3
+    action: modify
+    depends_on: [E, I]
+
+  - file: cmd/server/main.go
+    agent: H
+    wave: 3
+    action: modify
+    depends_on: [I]
+
+interface_contracts:
+  - name: parseStateFilter
+    description: |-
+      Changed from returning map only to returning (map, error).
+      Returns an error for any unrecognized state token so callers can
+      return InvalidArgument instead of silently returning 0 results.
+    definition: |-
+      func parseStateFilter(filter string) (map[secretmanagerpb.SecretVersion_State]bool, error)
+
+      // Valid state tokens: ENABLED, DISABLED, DESTROYED (case-insensitive).
+      // Returns (nil, nil) for empty filter string.
+      // Returns (map, nil) for valid state: filter.
+      // Returns (nil, status.Errorf(codes.InvalidArgument, ...)) for invalid token.
+      // For non-state: prefixed filters (e.g., "name:foo"), return (nil, nil) — pass-through.
+    location: internal/server/storage.go
+
+  - name: resolveLatestVersionAny
+    description: |-
+      New function alongside existing resolveLatestVersion.
+      Finds the highest-numbered version regardless of state (ENABLED, DISABLED, DESTROYED).
+      Used by GetSecretVersion("latest") per GCP semantics.
+      The existing resolveLatestVersion remains for AccessSecretVersion (ENABLED-only).
+    definition: |-
+      func (s *Storage) resolveLatestVersionAny(stored *StoredSecret) (string, error)
+
+      // Must be called with read lock held.
+      // Returns the highest version number string (e.g., "3") regardless of state.
+      // Returns codes.NotFound only when stored.Versions is empty (zero versions exist).
+      // Uses found bool flag (not 0-sentinel) to detect "no versions at all".
+    location: internal/server/storage.go
+
+  - name: resolveLatestVersion (updated)
+    description: |-
+      Existing function updated to fix BUG-6 (0-sentinel bug) and GAP-13
+      (FailedPrecondition vs NotFound distinction).
+      Signature unchanged. Now uses found bool flag instead of latestVersionNum==0 sentinel.
+      Returns FailedPrecondition when versions exist but none are ENABLED.
+      Returns NotFound only when no versions exist at all.
+    definition: |-
+      func (s *Storage) resolveLatestVersion(stored *StoredSecret) (string, error)
+
+      // Must be called with read lock held.
+      // Returns codes.NotFound when len(stored.Versions) == 0.
+      // Returns codes.FailedPrecondition when versions exist but none are ENABLED.
+      // Uses: var found bool; only set found=true when Sscanf succeeds and state==ENABLED.
+      // Skip (continue) on Sscanf parse error instead of silently using num=0.
+    location: internal/server/storage.go
+
+  - name: NewServer (gateway)
+    description: |-
+      BUG-5 fix: signature changes from returning *Server (panicking on error)
+      to returning (*Server, error). All callers must handle the error.
+    definition: |-
+      func NewServer(grpcAddr string) (*Server, error)
+
+      // Returns (*Server, nil) on success.
+      // Returns (nil, fmt.Errorf("failed to dial gRPC server: %w", err)) on grpc.NewClient failure.
+      // Never panics.
+    location: internal/gateway/gateway.go
+
+  - name: grpcStatusToHTTP
+    description: |-
+      New package-level helper in gateway.go that maps gRPC status codes to HTTP status codes.
+      Used by all handler functions instead of hardcoded http.StatusInternalServerError.
+    definition: |-
+      func grpcStatusToHTTP(err error) int
+
+      // Mapping:
+      //   codes.NotFound          -> 404
+      //   codes.AlreadyExists     -> 409
+      //   codes.InvalidArgument   -> 400
+      //   codes.FailedPrecondition -> 400
+      //   codes.PermissionDenied  -> 403
+      //   codes.Unauthenticated   -> 401
+      //   default (including codes.Internal, codes.Unknown) -> 500
+      // Uses google.golang.org/grpc/status.FromError to extract the code.
+    location: internal/gateway/gateway.go
+
+  - name: Version (constant)
+    description: |-
+      Shared version constant extracted from all three main.go files (MIN-1).
+      Package internal/version exports a single const.
+    definition: |-
+      package version
+
+      const Version = "1.3.0"
+    location: internal/version/version.go
+
+waves:
+  - number: 1
+    agents:
+      - id: I
+        task: |-
+          ## Agent I — Create internal/version/version.go (MIN-1)
+
+          Create the file `internal/version/version.go` with the following exact content:
+
+          ```go
+          // Package version provides the shared version string for all server binaries.
+          package version
+
+          // Version is the current release version of the GCP Secret Manager Emulator.
+          const Version = "1.3.0"
+          ```
+
+          No other changes. This file will be imported by cmd/server/main.go,
+          cmd/server-rest/main.go, and cmd/server-dual/main.go in Wave 3 (Agent G, H).
+
+          ### Verification gate
+          ```
+          go build ./internal/version/...
+          go vet ./internal/version/...
+          go test ./internal/version/...
+          ```
+          (The package has no test file; go test will report "no test files" which is fine.)
+        files:
+          - internal/version/version.go
+        dependencies: []
+
+      - id: A
+        task: |-
+          ## Agent A — Storage layer correctness fixes
+
+          File: `internal/server/storage.go`
+
+          Apply the following fixes in order. Read the file carefully before editing.
+
+          ### BUG-1: DestroySecretVersion must return FailedPrecondition for already-DESTROYED
+
+          In `DestroySecretVersion`, around lines 604-611, the code currently returns success
+          when the version is already DESTROYED. Change it to return FailedPrecondition:
+
+          ```go
+          // Replace:
+          if version.State == secretmanagerpb.SecretVersion_DESTROYED {
+              return &secretmanagerpb.SecretVersion{...}, nil  // success
+          }
+
+          // With:
+          if version.State == secretmanagerpb.SecretVersion_DESTROYED {
+              return nil, status.Errorf(codes.FailedPrecondition,
+                  "Secret Version is in an invalid state for this operation")
+          }
+          ```
+
+          ### BUG-6: resolveLatestVersion — fix 0-sentinel bug and add found bool
+
+          Replace the entire `resolveLatestVersion` function body. The current code uses
+          `latestVersionNum == 0` as a sentinel for "no enabled versions found", which is
+          incorrect if Sscanf fails and num stays 0. Also, when versions exist but none
+          are ENABLED, it should return FailedPrecondition (GAP-13), not NotFound.
+
+          New implementation:
+
+          ```go
+          func (s *Storage) resolveLatestVersion(stored *StoredSecret) (string, error) {
+              var latestVersionNum int64
+              var found bool
+
+              for versionID, version := range stored.Versions {
+                  if version.State != secretmanagerpb.SecretVersion_ENABLED {
+                      continue
+                  }
+                  var num int64
+                  if _, err := fmt.Sscanf(versionID, "%d", &num); err != nil {
+                      continue // skip malformed version IDs
+                  }
+                  if !found || num > latestVersionNum {
+                      latestVersionNum = num
+                      found = true
+                  }
+              }
+
+              if !found {
+                  // Distinguish: are there any versions at all?
+                  if len(stored.Versions) == 0 {
+                      return "", status.Errorf(codes.NotFound,
+                          "No versions found for secret [%s]", stored.Name)
+                  }
+                  return "", status.Errorf(codes.FailedPrecondition,
+                      "No enabled versions found for secret [%s]", stored.Name)
+              }
+
+              return fmt.Sprintf("%d", latestVersionNum), nil
+          }
+          ```
+
+          ### GAP-1: Add resolveLatestVersionAny for GetSecretVersion
+
+          Add a new function after `resolveLatestVersion`. This function finds the
+          highest-numbered version regardless of state, for use by `GetSecretVersion("latest")`:
+
+          ```go
+          // resolveLatestVersionAny finds the highest version number regardless of state.
+          // Used by GetSecretVersion where "latest" should resolve to any version state.
+          // Must be called with read lock held.
+          func (s *Storage) resolveLatestVersionAny(stored *StoredSecret) (string, error) {
+              var latestVersionNum int64
+              var found bool
+
+              for versionID := range stored.Versions {
+                  var num int64
+                  if _, err := fmt.Sscanf(versionID, "%d", &num); err != nil {
+                      continue
+                  }
+                  if !found || num > latestVersionNum {
+                      latestVersionNum = num
+                      found = true
+                  }
+              }
+
+              if !found {
+                  return "", status.Errorf(codes.NotFound,
+                      "No versions found for secret [%s]", stored.Name)
+              }
+
+              return fmt.Sprintf("%d", latestVersionNum), nil
+          }
+          ```
+
+          Then update `GetSecretVersion` to call `resolveLatestVersionAny` instead of
+          `resolveLatestVersion` when `versionID == "latest"` (around lines 359-365):
+
+          ```go
+          if versionID == "latest" {
+              latestID, err := s.resolveLatestVersionAny(stored)
+              if err != nil {
+                  return nil, err
+              }
+              versionID = latestID
+              versionName = fmt.Sprintf("%s/versions/%s", secretName, versionID)
+          }
+          ```
+
+          `AccessSecretVersion` continues to call `resolveLatestVersion` (ENABLED-only) —
+          do not change it.
+
+          ### GAP-10: DisableSecretVersion must return FailedPrecondition for already-DISABLED
+
+          In `DisableSecretVersion`, after the DESTROYED check (around line 519-521), add:
+
+          ```go
+          // After the DESTROYED check, before setting state:
+          if version.State == secretmanagerpb.SecretVersion_DISABLED {
+              return nil, status.Errorf(codes.FailedPrecondition,
+                  "Secret Version is in an invalid state for this operation")
+          }
+          ```
+
+          ### GAP-11: EnableSecretVersion must return FailedPrecondition for already-ENABLED
+
+          In `EnableSecretVersion`, after the DESTROYED check (around line 562-564), add:
+
+          ```go
+          if version.State == secretmanagerpb.SecretVersion_ENABLED {
+              return nil, status.Errorf(codes.FailedPrecondition,
+                  "Secret Version is in an invalid state for this operation")
+          }
+          ```
+
+          ### GAP-3: parseStateFilter must return (map, error)
+
+          Change the signature of `parseStateFilter` to return an error for unknown state tokens:
+
+          ```go
+          func parseStateFilter(filter string) (map[secretmanagerpb.SecretVersion_State]bool, error) {
+              if filter == "" {
+                  return nil, nil
+              }
+
+              filter = strings.TrimSpace(filter)
+
+              if strings.HasPrefix(filter, "state:") {
+                  stateName := strings.TrimPrefix(filter, "state:")
+                  stateName = strings.TrimSpace(stateName)
+
+                  includeStates := make(map[secretmanagerpb.SecretVersion_State]bool)
+                  switch strings.ToUpper(stateName) {
+                  case "ENABLED":
+                      includeStates[secretmanagerpb.SecretVersion_ENABLED] = true
+                  case "DISABLED":
+                      includeStates[secretmanagerpb.SecretVersion_DISABLED] = true
+                  case "DESTROYED":
+                      includeStates[secretmanagerpb.SecretVersion_DESTROYED] = true
+                  default:
+                      return nil, status.Errorf(codes.InvalidArgument,
+                          "Invalid filter state value: %q. Valid values: ENABLED, DISABLED, DESTROYED", stateName)
+                  }
+                  return includeStates, nil
+              }
+
+              // Non-state: prefixed filters are passed through without error (ignored).
+              return nil, nil
+          }
+          ```
+
+          Update the `ListSecretVersions` caller to handle the error:
+
+          ```go
+          includeStates, err := parseStateFilter(filter)
+          if err != nil {
+              return nil, "", err
+          }
+          ```
+
+          ### Verification gate
+          ```
+          go build ./internal/server/...
+          go vet ./internal/server/...
+          go test ./internal/server/... -run TestStorage
+          ```
+        files:
+          - internal/server/storage.go
+        dependencies: []
+
+      - id: B
+        task: |-
+          ## Agent B — Server layer: GAP-5 secret_id validation
+
+          File: `internal/server/server.go`
+
+          ### GAP-5: Validate secret_id format in CreateSecret
+
+          Add regex validation for `secret_id` in `CreateSecret`. The field must match
+          `^[a-zA-Z0-9_-]{1,255}$`.
+
+          Add the following import (add `"regexp"` to the import block):
+          ```go
+          "regexp"
+          ```
+
+          Add a package-level variable after the imports:
+          ```go
+          var validSecretIDRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,255}$`)
+          ```
+
+          In `CreateSecret`, after the existing `req.GetSecretId() == ""` check and before
+          the `checkPermission` call, add:
+
+          ```go
+          if !validSecretIDRegexp.MatchString(req.GetSecretId()) {
+              return nil, status.Errorf(codes.InvalidArgument,
+                  "Secret ID [%s] must match pattern [a-zA-Z0-9_-]{1,255}", req.GetSecretId())
+          }
+          ```
+
+          The full validation block in CreateSecret should read:
+          ```go
+          if req.GetParent() == "" {
+              return nil, status.Error(codes.InvalidArgument, "parent is required")
+          }
+          if req.GetSecretId() == "" {
+              return nil, status.Error(codes.InvalidArgument, "secret_id is required")
+          }
+          if !validSecretIDRegexp.MatchString(req.GetSecretId()) {
+              return nil, status.Errorf(codes.InvalidArgument,
+                  "Secret ID [%s] must match pattern [a-zA-Z0-9_-]{1,255}", req.GetSecretId())
+          }
+          if req.GetSecret() == nil {
+              return nil, status.Error(codes.InvalidArgument, "secret is required")
+          }
+          ```
+
+          No other changes to this file.
+
+          ### Verification gate
+          ```
+          go build ./internal/server/...
+          go vet ./internal/server/...
+          go test ./internal/server/... -run TestServer_CreateSecret
+          ```
+        files:
+          - internal/server/server.go
+        dependencies: []
+
+      - id: C
+        task: |-
+          ## Agent C — Fix storage coverage tests asserting wrong behavior
+
+          File: `internal/server/storage_coverage_test.go`
+
+          Fix tests that currently assert incorrect (pre-fix) behavior. Also update
+          `TestParseStateFilter` to match the new (map, error) signature of parseStateFilter.
+
+          ### Fix 1: TestStorage_DestroySecretVersion_Coverage/Idempotent (BUG-1)
+
+          The `Idempotent` subtest currently expects the second destroy to succeed.
+          After Agent A's fix, it should return FailedPrecondition. Change the subtest:
+
+          ```go
+          t.Run("Idempotent", func(t *testing.T) {
+              // Destroy once — should succeed
+              resp, err := storage.DestroySecretVersion(ctx, secretName+"/versions/1")
+              if err != nil {
+                  t.Fatalf("first DestroySecretVersion() failed: %v", err)
+              }
+              if resp.State != secretmanagerpb.SecretVersion_DESTROYED {
+                  t.Errorf("State = %v, want DESTROYED", resp.State)
+              }
+
+              // Destroy again — GCP returns FailedPrecondition, not success
+              _, err = storage.DestroySecretVersion(ctx, secretName+"/versions/1")
+              if err == nil {
+                  t.Fatal("second DestroySecretVersion() should return FailedPrecondition, got nil")
+              }
+              st, ok := status.FromError(err)
+              if !ok || st.Code() != codes.FailedPrecondition {
+                  t.Errorf("second DestroySecretVersion() error code = %v, want FailedPrecondition", st.Code())
+              }
+          })
+          ```
+
+          ### Fix 2: TestStorage_DisableSecretVersion_Coverage/DisableAlreadyDisabledVersion (GAP-10)
+
+          The `DisableAlreadyDisabledVersion` subtest currently expects success on double-disable.
+          After Agent A's fix, it should return FailedPrecondition. Change the subtest:
+
+          ```go
+          t.Run("DisableAlreadyDisabledVersion", func(t *testing.T) {
+              _, err := storage.AddSecretVersion(ctx, secretName, &secretmanagerpb.SecretPayload{Data: []byte("v2")})
+              if err != nil {
+                  t.Fatalf("AddSecretVersion() failed: %v", err)
+              }
+
+              _, err = storage.DisableSecretVersion(ctx, secretName+"/versions/2")
+              if err != nil {
+                  t.Fatalf("first DisableSecretVersion() failed: %v", err)
+              }
+
+              // Disabling again should return FailedPrecondition
+              _, err = storage.DisableSecretVersion(ctx, secretName+"/versions/2")
+              if err == nil {
+                  t.Fatal("second DisableSecretVersion() should return FailedPrecondition, got nil")
+              }
+              st, ok := status.FromError(err)
+              if !ok || st.Code() != codes.FailedPrecondition {
+                  t.Errorf("second DisableSecretVersion() error code = %v, want FailedPrecondition", st.Code())
+              }
+          })
+          ```
+
+          ### Fix 3: TestStorage_EnableSecretVersion_Coverage/EnableAlreadyEnabledVersion (GAP-11)
+
+          The `EnableAlreadyEnabledVersion` subtest currently expects success. After Agent A's
+          fix it should return FailedPrecondition. Change the subtest:
+
+          ```go
+          t.Run("EnableAlreadyEnabledVersion", func(t *testing.T) {
+              _, err := storage.AddSecretVersion(ctx, secretName, &secretmanagerpb.SecretPayload{Data: []byte("v2")})
+              if err != nil {
+                  t.Fatalf("AddSecretVersion() failed: %v", err)
+              }
+
+              // Version 2 is already ENABLED; enabling again should return FailedPrecondition
+              _, err = storage.EnableSecretVersion(ctx, secretName+"/versions/2")
+              if err == nil {
+                  t.Fatal("EnableSecretVersion() on already-enabled version should return FailedPrecondition, got nil")
+              }
+              st, ok := status.FromError(err)
+              if !ok || st.Code() != codes.FailedPrecondition {
+                  t.Errorf("EnableSecretVersion() error code = %v, want FailedPrecondition", st.Code())
+              }
+          })
+          ```
+
+          ### Fix 4: TestParseStateFilter — update for new (map, error) signature
+
+          `parseStateFilter` now returns `(map[...State]bool, error)`. Update the test
+          function `TestParseStateFilter` to call it correctly and assert error behavior.
+
+          The test helper function needs to receive both return values. Update each
+          subtest that calls `parseStateFilter` to use:
+          ```go
+          result, err := parseStateFilter(tt.filter)
+          ```
+
+          For the `InvalidState` case (filter `"state:UNKNOWN"`), update to expect an error:
+          ```go
+          {
+              name:      "InvalidState",
+              filter:    "state:UNKNOWN",
+              wantErr:   true,
+              wantCode:  codes.InvalidArgument,
+          },
+          ```
+
+          For the `NonStatePrefix` case (filter `"name:something"`), it still returns
+          `(nil, nil)` — no change to expected behavior, just update the call site.
+
+          Restructure the test table to include `wantErr bool` and `wantCode codes.Code`
+          fields. In the test loop:
+          ```go
+          result, err := parseStateFilter(tt.filter)
+          if tt.wantErr {
+              if err == nil {
+                  t.Fatalf("parseStateFilter(%q) expected error, got nil", tt.filter)
+              }
+              st, ok := status.FromError(err)
+              if !ok || st.Code() != tt.wantCode {
+                  t.Errorf("parseStateFilter(%q) error code = %v, want %v", tt.filter, st.Code(), tt.wantCode)
+              }
+              return
+          }
+          if err != nil {
+              t.Fatalf("parseStateFilter(%q) unexpected error: %v", tt.filter, err)
+          }
+          // rest of existing assertions on result...
+          ```
+
+          Also update `TestStorage_GetSecretVersion_Coverage/LatestSkipsDisabledVersions`
+          to reflect the behavior change from GAP-1: "latest" in GetSecretVersion now
+          resolves to the highest version regardless of state. After disabling version 2,
+          GetSecretVersion("latest") should now succeed (returning version 2 in DISABLED state),
+          not fail with NotFound. Update the subtest:
+
+          ```go
+          t.Run("LatestSkipsDisabledVersions", func(t *testing.T) {
+              // Version 1 is destroyed, version 2 is enabled; disable version 2
+              _, err := storage.DisableSecretVersion(ctx, secretName+"/versions/2")
+              if err != nil {
+                  t.Fatalf("DisableSecretVersion() failed: %v", err)
+              }
+
+              // GetSecretVersion("latest") should return version 2 (DISABLED) —
+              // GetSecretVersion resolves "latest" to highest version regardless of state.
+              resp, err := storage.GetSecretVersion(ctx, secretName+"/versions/latest")
+              if err != nil {
+                  t.Fatalf("GetSecretVersion(latest) should succeed for highest version (even disabled): %v", err)
+              }
+              if resp.State != secretmanagerpb.SecretVersion_DISABLED {
+                  t.Errorf("State = %v, want DISABLED", resp.State)
+              }
+          })
+          ```
+
+          ### Verification gate
+          ```
+          go build ./internal/server/...
+          go vet ./internal/server/...
+          go test ./internal/server/... -run "TestStorage_DestroySecretVersion|TestStorage_DisableSecretVersion|TestStorage_EnableSecretVersion|TestParseStateFilter|TestStorage_GetSecretVersion"
+          ```
+        files:
+          - internal/server/storage_coverage_test.go
+        dependencies: []
+
+      - id: D
+        task: |-
+          ## Agent D — Fix server coverage tests asserting wrong behavior
+
+          File: `internal/server/server_coverage_test.go`
+
+          ### Fix 1: TestServer_ListSecretVersions_Coverage/InvalidFilter_ReturnsAll (GAP-3)
+
+          After Agent B's fix (which propagates through server.go to storage.go's
+          parseStateFilter), an invalid filter like "state:INVALID_STATE" now returns
+          InvalidArgument, not all versions.
+
+          However, note that Agent B only touches server.go (GAP-5). The GAP-3 fix to
+          parseStateFilter is in storage.go (owned by Agent A). This agent's fix
+          is purely a test assertion change: update the subtest to expect InvalidArgument.
+
+          Find the subtest `InvalidFilter_ReturnsAll` and replace it entirely:
+
+          ```go
+          t.Run("InvalidFilter_ReturnsInvalidArgument", func(t *testing.T) {
+              // parseStateFilter now returns InvalidArgument for unknown state tokens.
+              _, err := s.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+                  Parent: secretName,
+                  Filter: "state:INVALID_STATE",
+              })
+              if err == nil {
+                  t.Fatal("ListSecretVersions(INVALID_STATE) should return InvalidArgument, got nil")
+              }
+              st, ok := status.FromError(err)
+              if !ok || st.Code() != codes.InvalidArgument {
+                  t.Errorf("ListSecretVersions(INVALID_STATE) error code = %v, want InvalidArgument", st.Code())
+              }
+          })
+          ```
+
+          Note: rename the subtest from `InvalidFilter_ReturnsAll` to
+          `InvalidFilter_ReturnsInvalidArgument` so the name matches the new expected behavior.
+
+          ### Fix 2: TestServer_GetSecretVersion_Coverage/LatestWithNoEnabledVersions (GAP-1)
+
+          After Agent A's fix (resolveLatestVersionAny for GetSecretVersion), the
+          "latest" alias in GetSecretVersion finds the highest version regardless of state.
+          The test `LatestWithNoEnabledVersions` destroys version 1 and then calls
+          GetSecretVersion("latest"). After the fix, this should succeed (returning the
+          destroyed version 1 metadata), not fail with NotFound.
+
+          Find the subtest `LatestWithNoEnabledVersions` and update:
+
+          ```go
+          t.Run("LatestWithNoEnabledVersions", func(t *testing.T) {
+              // All versions are destroyed, but GetSecretVersion("latest") resolves
+              // to the highest version regardless of state (GAP-1 fix).
+              resp, err := s.GetSecretVersion(ctx, &secretmanagerpb.GetSecretVersionRequest{
+                  Name: secretName + "/versions/latest",
+              })
+              if err != nil {
+                  t.Fatalf("GetSecretVersion(latest) should succeed even with destroyed version: %v", err)
+              }
+              if resp.State != secretmanagerpb.SecretVersion_DESTROYED {
+                  t.Errorf("GetSecretVersion(latest).State = %v, want DESTROYED", resp.State)
+              }
+          })
+          ```
+
+          No other changes to this file.
+
+          ### Verification gate
+          ```
+          go build ./internal/server/...
+          go vet ./internal/server/...
+          go test ./internal/server/... -run "TestServer_ListSecretVersions_Coverage|TestServer_GetSecretVersion_Coverage"
+          ```
+        files:
+          - internal/server/server_coverage_test.go
+        dependencies: []
+
+  - number: 2
+    agents:
+      - id: E
+        task: |-
+          ## Agent E — Gateway correctness fixes (gateway.go)
+
+          File: `internal/gateway/gateway.go`
+
+          Apply all the following fixes. Read the current file carefully before editing.
+
+          ### BUG-5: NewServer must return (*Server, error)
+
+          Change the signature of `NewServer` from `func NewServer(grpcAddr string) *Server`
+          to `func NewServer(grpcAddr string) (*Server, error)`:
+
+          ```go
+          func NewServer(grpcAddr string) (*Server, error) {
+              conn, err := grpc.NewClient(
+                  grpcAddr,
+                  grpc.WithTransportCredentials(insecure.NewCredentials()),
+              )
+              if err != nil {
+                  return nil, fmt.Errorf("failed to dial gRPC server: %w", err)
+              }
+
+              return &Server{
+                  grpcClient: secretmanagerpb.NewSecretManagerServiceClient(conn),
+                  conn:       conn,
+              }, nil
+          }
+          ```
+
+          ### BUG-3 + BUG-4: Add grpcStatusToHTTP helper
+
+          Add the following package-level helper function after the `Stop` method
+          (or before the `handleRequest` method). This helper replaces all hardcoded
+          http.StatusInternalServerError and hardcoded http.StatusNotFound in handlers:
+
+          ```go
+          // grpcStatusToHTTP maps gRPC status codes to HTTP status codes.
+          func grpcStatusToHTTP(err error) int {
+              st, ok := status.FromError(err)
+              if !ok {
+                  return http.StatusInternalServerError
+              }
+              switch st.Code() {
+              case codes.NotFound:
+                  return http.StatusNotFound
+              case codes.AlreadyExists:
+                  return http.StatusConflict
+              case codes.InvalidArgument:
+                  return http.StatusBadRequest
+              case codes.FailedPrecondition:
+                  return http.StatusBadRequest
+              case codes.PermissionDenied:
+                  return http.StatusForbidden
+              case codes.Unauthenticated:
+                  return http.StatusUnauthorized
+              default:
+                  return http.StatusInternalServerError
+              }
+          }
+          ```
+
+          Add the required import `"google.golang.org/grpc/codes"` and
+          `"google.golang.org/grpc/status"` to the import block if not already present.
+          Check the existing imports — `status` package may already be imported via
+          `google.golang.org/grpc/status`. Add `codes` if missing.
+
+          Then update every handler to use `grpcStatusToHTTP(err)` instead of
+          hardcoded status codes:
+
+          - `listSecrets`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `createSecret`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `getSecret`: change `http.StatusNotFound` → `grpcStatusToHTTP(err)`
+          - `updateSecret`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `deleteSecret`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `addSecretVersion`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `listSecretVersions`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `getSecretVersion`: change `http.StatusNotFound` → `grpcStatusToHTTP(err)`
+          - `accessSecretVersion`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `enableSecretVersion`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `disableSecretVersion`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+          - `destroySecretVersion`: change `http.StatusInternalServerError` → `grpcStatusToHTTP(err)`
+
+          ### BUG-2: updateSecret must forward update_mask
+
+          In the `updateSecret` handler, parse the `updateMask` query parameter and
+          populate the `UpdateMask` field. Replace the existing handler body with:
+
+          ```go
+          func (s *Server) updateSecret(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) {
+              body, _ := io.ReadAll(r.Body)
+              defer r.Body.Close()
+
+              var secret secretmanagerpb.Secret
+              if err := protojson.Unmarshal(body, &secret); err != nil {
+                  http.Error(w, fmt.Sprintf(`{"error":"Invalid JSON: %v"}`, err), http.StatusBadRequest)
+                  return
+              }
+
+              secret.Name = name
+
+              // Parse update_mask from query parameter
+              updateMaskParam := r.URL.Query().Get("updateMask")
+              if updateMaskParam == "" {
+                  updateMaskParam = r.URL.Query().Get("update_mask")
+              }
+
+              req := &secretmanagerpb.UpdateSecretRequest{
+                  Secret: &secret,
+              }
+
+              if updateMaskParam != "" {
+                  req.UpdateMask = &fieldmaskpb.FieldMask{
+                      Paths: strings.Split(updateMaskParam, ","),
+                  }
+              }
+
+              resp, err := s.grpcClient.UpdateSecret(ctx, req)
+              if err != nil {
+                  http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), grpcStatusToHTTP(err))
+                  return
+              }
+
+              writeProtoJSON(w, resp)
+          }
+          ```
+
+          Add the following import if not already present:
+          ```go
+          "google.golang.org/protobuf/types/known/fieldmaskpb"
+          ```
+
+          ### GAP-8: Parse pageSize query parameter
+
+          In `listSecrets`, replace the hardcoded `PageSize: 100` with:
+          ```go
+          var pageSize int32
+          if ps := r.URL.Query().Get("pageSize"); ps != "" {
+              if n, err := strconv.Atoi(ps); err == nil && n > 0 {
+                  if n > 1000 {
+                      n = 1000
+                  }
+                  pageSize = int32(n)
+              }
+          }
+          req := &secretmanagerpb.ListSecretsRequest{
+              Parent:    parent,
+              PageSize:  pageSize,
+              PageToken: r.URL.Query().Get("pageToken"),
+          }
+          ```
+
+          In `listSecretVersions`, apply the same pattern replacing `PageSize: 100`:
+          ```go
+          var pageSize int32
+          if ps := r.URL.Query().Get("pageSize"); ps != "" {
+              if n, err := strconv.Atoi(ps); err == nil && n > 0 {
+                  if n > 1000 {
+                      n = 1000
+                  }
+                  pageSize = int32(n)
+              }
+          }
+          req := &secretmanagerpb.ListSecretVersionsRequest{
+              Parent:    parent,
+              PageSize:  pageSize,
+              PageToken: r.URL.Query().Get("pageToken"),
+          }
+          ```
+
+          Add `"strconv"` to the import block.
+
+          ### GAP-9: Accept URL-safe base64 in addSecretVersion
+
+          In `addSecretVersion`, replace the single `base64.StdEncoding.DecodeString` call
+          with a fallback chain:
+
+          ```go
+          // Try standard base64, then URL-safe (with and without padding)
+          data, err := base64.StdEncoding.DecodeString(reqBody.Payload.Data)
+          if err != nil {
+              data, err = base64.URLEncoding.DecodeString(reqBody.Payload.Data)
+          }
+          if err != nil {
+              data, err = base64.RawURLEncoding.DecodeString(reqBody.Payload.Data)
+          }
+          if err != nil {
+              http.Error(w, fmt.Sprintf(`{"error":"Invalid base64 data: %v"}`, err), http.StatusBadRequest)
+              return
+          }
+          ```
+
+          ### MIN-3: writeProtoJSON — change EmitUnpopulated to false
+
+          In `writeProtoJSON`, change:
+          ```go
+          EmitUnpopulated: true,
+          ```
+          to:
+          ```go
+          EmitUnpopulated: false,
+          ```
+
+          ### MIN-4: writeProtoJSON — log write error instead of calling http.Error after headers written
+
+          In `writeProtoJSON`, replace the error handling after `w.Write(data)`:
+          ```go
+          // Replace:
+          if _, err := w.Write(data); err != nil {
+              http.Error(w, fmt.Sprintf(`{"error":"Failed to write response: %v"}`, err), http.StatusInternalServerError)
+          }
+
+          // With:
+          if _, err := w.Write(data); err != nil {
+              // Headers already written; http.Error would be ignored. Log the error instead.
+              log.Printf("writeProtoJSON: failed to write response body: %v", err)
+          }
+          ```
+
+          Add `"log"` to the import block.
+
+          ### MIN-6: Health check endpoint — add Content-Type header
+
+          In the `Start` method, find the health check handler and add the Content-Type
+          header before WriteHeader:
+          ```go
+          mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+              w.Header().Set("Content-Type", "application/json")
+              w.WriteHeader(http.StatusOK)
+              fmt.Fprintf(w, `{"status":"healthy"}`)
+          })
+          ```
+
+          ### Verification gate
+          ```
+          go build ./internal/gateway/...
+          go vet ./internal/gateway/...
+          go test ./internal/gateway/... -run TestHealthCheck
+          ```
+        files:
+          - internal/gateway/gateway.go
+        dependencies:
+          - I
+          - A
+          - B
+
+  - number: 3
+    agents:
+      - id: F
+        task: |-
+          ## Agent F — Fix and extend gateway tests
+
+          File: `internal/gateway/gateway_test.go`
+
+          ### Dependency note
+          Agent E (Wave 2) changed `NewServer` to return `(*Server, error)`.
+          The test helper `startTestGateway` calls `NewServer(grpcAddr)` directly
+          on line 52. Update it to handle the error:
+
+          ```go
+          gw, err := NewServer(grpcAddr)
+          if err != nil {
+              grpcServer.GracefulStop()
+              t.Fatalf("NewServer failed: %v", err)
+          }
+          ```
+
+          ### Fix TestUpdateSecret/Success (BUG-2)
+
+          The existing `Success` subtest in `TestUpdateSecret` currently expects
+          `http.StatusInternalServerError` (the old buggy behavior) and carries a
+          comment explaining the bug. Now that BUG-2 is fixed, update the test:
+
+          1. Change the request to include `?updateMask=labels` query parameter.
+          2. Change the expected status from `http.StatusInternalServerError` to
+             `http.StatusOK`.
+          3. Assert the response body contains the updated label.
+
+          New subtest:
+          ```go
+          t.Run("Success", func(t *testing.T) {
+              body := `{"labels":{"env":"test"}}`
+              resp := doRequest(t, http.MethodPatch,
+                  baseURL+"/v1/projects/test-project/secrets/update-test?updateMask=labels", body)
+              respBody := readBody(t, resp)
+
+              if resp.StatusCode != http.StatusOK {
+                  t.Errorf("UpdateSecret status = %d, want %d; body = %s",
+                      resp.StatusCode, http.StatusOK, respBody)
+              }
+              if !strings.Contains(respBody, `"env"`) {
+                  t.Errorf("UpdateSecret response missing updated label: %s", respBody)
+              }
+          })
+          ```
+
+          ### Add error code tests (BUG-3 + BUG-4)
+
+          Add a new top-level test function `TestGrpcStatusToHTTP` after the existing tests:
+
+          ```go
+          // TestGrpcStatusToHTTP tests that gRPC error codes are correctly mapped to HTTP status codes.
+          func TestGrpcStatusToHTTP(t *testing.T) {
+              baseURL, cleanup := startTestGateway(t)
+              defer cleanup()
+
+              t.Run("DeleteNonexistent_Returns404", func(t *testing.T) {
+                  resp := doRequest(t, http.MethodDelete,
+                      baseURL+"/v1/projects/test-project/secrets/does-not-exist", "")
+                  defer resp.Body.Close()
+                  if resp.StatusCode != http.StatusNotFound {
+                      t.Errorf("DELETE nonexistent secret status = %d, want 404", resp.StatusCode)
+                  }
+              })
+
+              t.Run("CreateDuplicate_Returns409", func(t *testing.T) {
+                  // Create the secret first
+                  doRequest(t, http.MethodPost,
+                      baseURL+"/v1/projects/test-project/secrets?secretId=dup-secret",
+                      `{"replication":{"automatic":{}}}`)
+
+                  // Create the same secret again — should return 409
+                  resp := doRequest(t, http.MethodPost,
+                      baseURL+"/v1/projects/test-project/secrets?secretId=dup-secret",
+                      `{"replication":{"automatic":{}}}`)
+                  defer resp.Body.Close()
+                  if resp.StatusCode != http.StatusConflict {
+                      t.Errorf("CreateSecret duplicate status = %d, want 409", resp.StatusCode)
+                  }
+              })
+
+              t.Run("AccessDisabledVersion_Returns400", func(t *testing.T) {
+                  // Create secret and version
+                  doRequest(t, http.MethodPost,
+                      baseURL+"/v1/projects/test-project/secrets?secretId=disabled-ver-test",
+                      `{"replication":{"automatic":{}}}`)
+                  doRequest(t, http.MethodPost,
+                      baseURL+"/v1/projects/test-project/secrets/disabled-ver-test:addVersion",
+                      `{"payload":{"data":"`+base64.StdEncoding.EncodeToString([]byte("secret"))+`"}}`)
+
+                  // Disable the version
+                  doRequest(t, http.MethodPost,
+                      baseURL+"/v1/projects/test-project/secrets/disabled-ver-test/versions/1:disable", "")
+
+                  // Access the disabled version — should return 400
+                  resp := doRequest(t, http.MethodGet,
+                      baseURL+"/v1/projects/test-project/secrets/disabled-ver-test/versions/1:access", "")
+                  defer resp.Body.Close()
+                  if resp.StatusCode != http.StatusBadRequest {
+                      t.Errorf("Access disabled version status = %d, want 400", resp.StatusCode)
+                  }
+              })
+          }
+          ```
+
+          Ensure `"encoding/base64"` is already imported (it is — check the existing import block).
+
+          ### Verification gate
+          ```
+          go build ./internal/gateway/...
+          go vet ./internal/gateway/...
+          go test ./internal/gateway/...
+          ```
+        files:
+          - internal/gateway/gateway_test.go
+        dependencies:
+          - E
+
+      - id: G
+        task: |-
+          ## Agent G — Update cmd callers for NewServer error return + version constant
+
+          Files: `cmd/server-rest/main.go`, `cmd/server-dual/main.go`
+
+          ### BUG-5 callers: handle NewServer(*Server, error) in both files
+
+          In `cmd/server-rest/main.go`, find the line:
+          ```go
+          gateway := gateway.NewServer(grpcAddr)
+          ```
+          Replace with:
+          ```go
+          gw, err := gateway.NewServer(grpcAddr)
+          if err != nil {
+              log.Fatalf("Failed to create gateway: %v", err)
+          }
+          ```
+          Then rename all subsequent uses of `gateway` (the local variable, not the package)
+          to `gw` to avoid shadowing the package name. The variable was already named
+          `gateway` which shadowed the imported package — fix that too:
+          - `gateway.Start(...)` → `gw.Start(...)`
+          - `gateway.Stop(...)` → `gw.Stop(...)`
+
+          In `cmd/server-dual/main.go`, find:
+          ```go
+          gatewayServer := gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+          ```
+          Replace with:
+          ```go
+          gatewayServer, err := gateway.NewServer(fmt.Sprintf("localhost:%d", *grpcPort))
+          if err != nil {
+              log.Fatalf("Failed to create gateway: %v", err)
+          }
+          ```
+          (Note: `err` is already declared earlier in main for gRPC listen; use `:=` only for the
+          first error declaration and `=` for re-use, or redeclare as needed.)
+
+          ### MIN-1: Import version constant in both files
+
+          In both `cmd/server-rest/main.go` and `cmd/server-dual/main.go`:
+
+          1. Remove the file-level `version = "1.3.0"` variable declaration from the `var` block.
+          2. Add the import:
+             ```go
+             "github.com/blackwell-systems/gcp-secret-manager-emulator/internal/version"
+             ```
+          3. Change all references from `version` (the local var) to `version.Version`
+             (the package constant). In these files, the only usage is in the log.Printf
+             banner line, e.g.:
+             ```go
+             log.Printf("GCP Secret Manager Emulator v%s (REST API)", version.Version)
+             ```
+
+          Note: `logLevel` is declared in both files but the value is only used in log.Printf
+          in server-rest. Do not remove `logLevel` from these files — that is MIN-2 which is
+          only for cmd/server/main.go (Agent H's scope).
+
+          ### Verification gate
+          ```
+          go build ./cmd/server-rest/...
+          go build ./cmd/server-dual/...
+          go vet ./cmd/server-rest/...
+          go vet ./cmd/server-dual/...
+          ```
+        files:
+          - cmd/server-rest/main.go
+          - cmd/server-dual/main.go
+        dependencies:
+          - E
+          - I
+
+      - id: H
+        task: |-
+          ## Agent H — cmd/server/main.go: MIN-1 version constant, MIN-2 logLevel removal
+
+          File: `cmd/server/main.go`
+
+          ### MIN-1: Import version constant
+
+          1. Remove `version = "1.3.0"` from the `var` block (line 35).
+          2. Add import:
+             ```go
+             "github.com/blackwell-systems/gcp-secret-manager-emulator/internal/version"
+             ```
+          3. Update the log.Printf banner to use `version.Version`:
+             ```go
+             log.Printf("GCP Secret Manager Emulator v%s", version.Version)
+             ```
+
+          ### MIN-2: Remove unused logLevel flag
+
+          The `logLevel` flag is declared and parsed but never wired to a logger.
+          Remove it to avoid user confusion:
+
+          1. Remove from the `var` block:
+             ```go
+             logLevel = flag.String("log-level", getEnv("GCP_MOCK_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
+             ```
+          2. Remove the log.Printf line that prints the log level:
+             ```go
+             log.Printf("Starting on port %d with log level: %s", *port, *logLevel)
+             ```
+             Replace with:
+             ```go
+             log.Printf("Starting on port %d", *port)
+             ```
+
+          After both changes, if `getEnv` is no longer called anywhere in main.go
+          (check carefully — `getEnv` is used for `logLevel` only; `getEnvInt` is used
+          for `port`), remove the `getEnv` helper function as well. If it is still used,
+          leave it.
+
+          ### Verification gate
+          ```
+          go build ./cmd/server/...
+          go vet ./cmd/server/...
+          ```
+        files:
+          - cmd/server/main.go
+        dependencies:
+          - I
+
+pre_mortem:
+  overall_risk: medium
+  rows:
+    - scenario: |-
+        Agent C updates TestStorage_GetSecretVersion_Coverage/LatestSkipsDisabledVersions
+        but the test setup state differs from what Agent A implements (e.g., Agent A's
+        resolveLatestVersionAny uses a different condition). Test expectations diverge.
+      likelihood: low
+      impact: high
+      mitigation: |-
+        The interface contract for resolveLatestVersionAny is precisely specified.
+        Agent C's task spec explicitly states the new expected behavior (returns DISABLED
+        version metadata). If the test fails post-merge, the fix is a one-line assertion
+        change, not a logic change.
+
+    - scenario: |-
+        Agent D updates TestServer_GetSecretVersion_Coverage/LatestWithNoEnabledVersions
+        but the test setup was modified in a prior subtest (GetDestroyedVersion destroys
+        version 1). Agent D needs to account for that state in the updated assertion.
+      likelihood: medium
+      impact: medium
+      mitigation: |-
+        Agent D's task brief explicitly notes the setup state: "all versions are
+        destroyed" after the prior subtest. The new assertion checks
+        resp.State == DESTROYED which is exactly what the setup produces.
+
+    - scenario: |-
+        Agent G renames the `gateway` local variable to `gw` in server-rest/main.go
+        but misses a usage, causing a compile error (undefined: gateway as variable).
+      likelihood: low
+      impact: low
+      mitigation: |-
+        go build immediately catches this. Agent G's verification gate includes
+        go build ./cmd/server-rest/... which will fail fast if any reference is missed.
+
+    - scenario: |-
+        Agent F's TestGrpcStatusToHTTP/AccessDisabledVersion_Returns400 test uses a
+        :access suffix on a version URL. If the gateway routing for the :access suffix
+        is sensitive to the version path format, the test may return 404 instead of 400.
+      likelihood: low
+      impact: low
+      mitigation: |-
+        The routing for :access is already tested in existing gateway tests (TestAccessSecretVersion).
+        The new test follows the exact same URL pattern.
+
+    - scenario: |-
+        parseStateFilter signature change in storage.go (Agent A) causes TestParseStateFilter
+        in storage_coverage_test.go (Agent C) to fail to compile if Agent C does not update
+        every call site. The function is called in multiple test table entries.
+      likelihood: medium
+      impact: medium
+      mitigation: |-
+        Agent C's task brief explicitly enumerates all required changes to the test table
+        and the loop body. The verification gate `go build ./internal/server/...` catches
+        any missed call site before test execution.
+
+    - scenario: |-
+        Agent H removes the getEnv helper from cmd/server/main.go but forgets that
+        the function may be referenced in a test file for that package (if one exists).
+      likelihood: low
+      impact: low
+      mitigation: |-
+        There are no test files in cmd/server/. The only helper functions are
+        getEnv and getEnvInt. After removing logLevel, getEnv has no callers.
+        go vet will catch any remaining reference.
+
+    - scenario: |-
+        MIN-3 change (EmitUnpopulated: false) causes existing gateway tests to fail
+        because they assert on zero-value JSON fields like empty strings or null lists
+        that are now omitted from responses.
+      likelihood: medium
+      impact: medium
+      mitigation: |-
+        Agent E's verification gate runs the full gateway test suite. If tests break,
+        Agent E updates assertions to not require zero-value fields. The change is
+        intentional (GCP omits zero-value fields) so test fixes are straightforward.

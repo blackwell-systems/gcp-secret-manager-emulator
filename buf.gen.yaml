@@ -1,0 +1,17 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/blackwell-systems/gcp-secret-manager-emulator/internal/gen
+plugins:
+  - remote: buf.build/grpc-ecosystem/gateway:v2.28.0
+    out: internal/gen
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true
+inputs:
+  - git_repo: https://github.com/googleapis/googleapis.git
+    depth: 1
+    paths:
+      - google/cloud/secretmanager/v1/service.proto
