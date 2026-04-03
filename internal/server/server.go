@@ -15,7 +15,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	emulatorauth "github.com/blackwell-systems/gcp-emulator-auth"
 	"github.com/blackwell-systems/gcp-secret-manager-emulator/internal/authz"
@@ -23,6 +25,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 
 // Server implements the SecretManagerServiceServer interface.
 // It provides a mock implementation of GCP Secret Manager for testing.
@@ -38,15 +42,17 @@ import (
 //	secretmanagerpb.RegisterSecretManagerServiceServer(grpcServer, server)
 type Server struct {
 	secretmanagerpb.UnimplementedSecretManagerServiceServer
-	storage   *Storage
-	iamClient *emulatorauth.Client
-	iamMode   emulatorauth.AuthMode
+	storage    *Storage
+	iamClient  *emulatorauth.Client
+	iamMode    emulatorauth.AuthMode
+	iamStorage *IAMStorage
 }
 
 // NewServer creates a new mock Secret Manager server.
 func NewServer() (*Server, error) {
 	s := &Server{
-		storage: NewStorage(),
+		storage:    NewStorage(),
+		iamStorage: NewIAMStorage(),
 	}
 
 	config := emulatorauth.LoadFromEnv()
@@ -105,7 +111,7 @@ func (s *Server) ListSecrets(ctx context.Context, req *secretmanagerpb.ListSecre
 		return nil, err
 	}
 
-	secrets, token, err := s.storage.ListSecrets(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken())
+	secrets, token, totalSize, err := s.storage.ListSecrets(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +119,7 @@ func (s *Server) ListSecrets(ctx context.Context, req *secretmanagerpb.ListSecre
 	return &secretmanagerpb.ListSecretsResponse{
 		Secrets:       secrets,
 		NextPageToken: token,
+		TotalSize:     totalSize,
 	}, nil
 }
 
@@ -170,6 +177,7 @@ func (s *Server) UpdateSecret(ctx context.Context, req *secretmanagerpb.UpdateSe
 
 	// Parse update mask to determine which fields to update
 	var labels, annotations map[string]string
+	var versionAliases map[string]int64
 
 	for _, path := range updateMask.GetPaths() {
 		switch path {
@@ -177,12 +185,32 @@ func (s *Server) UpdateSecret(ctx context.Context, req *secretmanagerpb.UpdateSe
 			labels = req.GetSecret().GetLabels()
 		case "annotations":
 			annotations = req.GetSecret().GetAnnotations()
+		case "version_aliases":
+			protoAliases := req.GetSecret().GetVersionAliases()
+			if protoAliases != nil {
+				versionAliases = make(map[string]int64, len(protoAliases))
+				for k, v := range protoAliases {
+					versionAliases[k] = int64(v)
+				}
+			}
 		default:
 			// Ignore unsupported fields (following GCP behavior - silently skip)
 		}
 	}
 
-	return s.storage.UpdateSecret(ctx, secretName, labels, annotations)
+	if req.GetSecret().GetEtag() != "" {
+		existing, err := s.storage.GetSecret(ctx, secretName)
+		if err != nil {
+			return nil, err
+		}
+		if existing.GetEtag() != req.GetSecret().GetEtag() {
+			return nil, status.Errorf(codes.Aborted,
+				"etag mismatch: provided %q does not match current etag",
+				req.GetSecret().GetEtag())
+		}
+	}
+
+	return s.storage.UpdateSecret(ctx, secretName, labels, annotations, versionAliases)
 }
 
 // DeleteSecret deletes a secret and all its versions.
@@ -191,16 +219,23 @@ func (s *Server) DeleteSecret(ctx context.Context, req *secretmanagerpb.DeleteSe
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-
 	if err := s.checkPermission(ctx, "DeleteSecret", authz.NormalizeSecretResource(req.GetName())); err != nil {
 		return nil, err
 	}
-
-	err := s.storage.DeleteSecret(ctx, req.GetName())
-	if err != nil {
+	if req.GetEtag() != "" {
+		existing, err := s.storage.GetSecret(ctx, req.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if existing.GetEtag() != req.GetEtag() {
+			return nil, status.Errorf(codes.Aborted,
+				"etag mismatch: provided %q does not match current etag",
+				req.GetEtag())
+		}
+	}
+	if err := s.storage.DeleteSecret(ctx, req.GetName()); err != nil {
 		return nil, err
 	}
-
 	return &emptypb.Empty{}, nil
 }
 
@@ -216,6 +251,17 @@ func (s *Server) AddSecretVersion(ctx context.Context, req *secretmanagerpb.AddS
 
 	if err := s.checkPermission(ctx, "AddSecretVersion", authz.NormalizeSecretResource(req.GetParent())); err != nil {
 		return nil, err
+	}
+
+	// Validate crc32c integrity if the client provided a checksum
+	if req.GetPayload().DataCrc32C != nil {
+		clientCrc := req.GetPayload().GetDataCrc32C()
+		computed := int64(crc32.Checksum(req.GetPayload().GetData(), crc32cTable))
+		if clientCrc != computed {
+			return nil, status.Errorf(codes.DataLoss,
+				"data_crc32c mismatch: client provided %d, server computed %d",
+				clientCrc, computed)
+		}
 	}
 
 	return s.storage.AddSecretVersion(ctx, req.GetParent(), req.GetPayload())
@@ -263,7 +309,7 @@ func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.Li
 		return nil, err
 	}
 
-	versions, token, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
+	versions, token, totalSize, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +317,7 @@ func (s *Server) ListSecretVersions(ctx context.Context, req *secretmanagerpb.Li
 	return &secretmanagerpb.ListSecretVersionsResponse{
 		Versions:      versions,
 		NextPageToken: token,
+		TotalSize:     totalSize,
 	}, nil
 }
 
@@ -280,11 +327,20 @@ func (s *Server) EnableSecretVersion(ctx context.Context, req *secretmanagerpb.E
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-
 	if err := s.checkPermission(ctx, "EnableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
 	}
-
+	if req.GetEtag() != "" {
+		existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if existing.GetEtag() != req.GetEtag() {
+			return nil, status.Errorf(codes.Aborted,
+				"etag mismatch: provided %q does not match current etag",
+				req.GetEtag())
+		}
+	}
 	return s.storage.EnableSecretVersion(ctx, req.GetName())
 }
 
@@ -295,11 +351,20 @@ func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-
 	if err := s.checkPermission(ctx, "DisableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
 	}
-
+	if req.GetEtag() != "" {
+		existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if existing.GetEtag() != req.GetEtag() {
+			return nil, status.Errorf(codes.Aborted,
+				"etag mismatch: provided %q does not match current etag",
+				req.GetEtag())
+		}
+	}
 	return s.storage.DisableSecretVersion(ctx, req.GetName())
 }
 
@@ -309,18 +374,70 @@ func (s *Server) DestroySecretVersion(ctx context.Context, req *secretmanagerpb.
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
-
 	if err := s.checkPermission(ctx, "DestroySecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
 		return nil, err
 	}
-
-	// Note: etag is optional and not enforced in this implementation
+	if req.GetEtag() != "" {
+		existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if existing.GetEtag() != req.GetEtag() {
+			return nil, status.Errorf(codes.Aborted,
+				"etag mismatch: provided %q does not match current etag",
+				req.GetEtag())
+		}
+	}
 	return s.storage.DestroySecretVersion(ctx, req.GetName())
 }
 
-// IAM methods are not implemented in MVP (no authentication/authorization in mock).
-// These are optional for the Secret Manager service and vaultmux doesn't use them.
-// If needed in the future, implement using google.iam.v1 package types.
+// GetIamPolicy returns the IAM policy for a secret resource.
+// Implements google.iam.v1.IAMPolicy.GetIamPolicy
+func (s *Server) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
+	if req.GetResource() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource is required")
+	}
+	if err := s.checkPermission(ctx, "GetIamPolicy", authz.NormalizeSecretResource(req.GetResource())); err != nil {
+		return nil, err
+	}
+	return s.iamStorage.GetPolicy(req.GetResource()), nil
+}
+
+// SetIamPolicy sets the IAM policy for a secret resource.
+// Implements google.iam.v1.IAMPolicy.SetIamPolicy
+func (s *Server) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
+	if req.GetResource() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource is required")
+	}
+	if err := s.checkPermission(ctx, "SetIamPolicy", authz.NormalizeSecretResource(req.GetResource())); err != nil {
+		return nil, err
+	}
+	return s.iamStorage.SetPolicy(req.GetResource(), req.GetPolicy()), nil
+}
+
+// TestIamPermissions tests whether the caller has the specified permissions on a resource.
+// Implements google.iam.v1.IAMPolicy.TestIamPermissions
+func (s *Server) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+	if req.GetResource() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource is required")
+	}
+	if s.iamClient == nil {
+		// IAM disabled: grant all requested permissions
+		return &iampb.TestIamPermissionsResponse{
+			Permissions: req.GetPermissions(),
+		}, nil
+	}
+	// IAM enabled: check each permission individually
+	principal := emulatorauth.ExtractPrincipalFromContext(ctx)
+	var granted []string
+	for _, perm := range req.GetPermissions() {
+		allowed, err := s.iamClient.CheckPermission(ctx, principal, req.GetResource(), perm)
+		if err == nil && allowed {
+			granted = append(granted, perm)
+		}
+	}
+	return &iampb.TestIamPermissionsResponse{Permissions: granted}, nil
+}
 
 // Storage returns the underlying storage (useful for testing).
 func (s *Server) Storage() *Storage {
