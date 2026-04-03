@@ -104,7 +104,7 @@ func TestStorage_ListSecrets(t *testing.T) {
 	}
 
 	t.Run("ListAll", func(t *testing.T) {
-		secrets, nextToken, err := storage.ListSecrets(ctx, "projects/test-project", 100, "")
+		secrets, nextToken, _, err := storage.ListSecrets(ctx, "projects/test-project", 100, "", "")
 		if err != nil {
 			t.Fatalf("ListSecrets() error = %v", err)
 		}
@@ -120,7 +120,7 @@ func TestStorage_ListSecrets(t *testing.T) {
 
 	t.Run("Pagination", func(t *testing.T) {
 		// First page
-		secrets, nextToken, err := storage.ListSecrets(ctx, "projects/test-project", 2, "")
+		secrets, nextToken, _, err := storage.ListSecrets(ctx, "projects/test-project", 2, "", "")
 		if err != nil {
 			t.Fatalf("ListSecrets() error = %v", err)
 		}
@@ -134,7 +134,7 @@ func TestStorage_ListSecrets(t *testing.T) {
 		}
 
 		// Second page
-		secrets, nextToken, err = storage.ListSecrets(ctx, "projects/test-project", 2, nextToken)
+		secrets, nextToken, _, err = storage.ListSecrets(ctx, "projects/test-project", 2, nextToken, "")
 		if err != nil {
 			t.Fatalf("ListSecrets() page 2 error = %v", err)
 		}
@@ -148,7 +148,7 @@ func TestStorage_ListSecrets(t *testing.T) {
 		}
 
 		// Third page (last page with 1 secret)
-		secrets, nextToken, err = storage.ListSecrets(ctx, "projects/test-project", 2, nextToken)
+		secrets, nextToken, _, err = storage.ListSecrets(ctx, "projects/test-project", 2, nextToken, "")
 		if err != nil {
 			t.Fatalf("ListSecrets() page 3 error = %v", err)
 		}
@@ -359,7 +359,7 @@ func TestStorage_Concurrent(t *testing.T) {
 		}
 
 		// Verify all secrets exist
-		secrets, _, err := storage.ListSecrets(ctx, "projects/concurrent-test", 1000, "")
+		secrets, _, _, err := storage.ListSecrets(ctx, "projects/concurrent-test", 1000, "", "")
 		if err != nil {
 			t.Fatalf("ListSecrets() error = %v", err)
 		}
@@ -384,12 +384,12 @@ func TestListSecrets_DeterministicOrdering(t *testing.T) {
 	}
 
 	// Call ListSecrets twice with no pageToken
-	secrets1, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "")
+	secrets1, _, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "", "")
 	if err != nil {
 		t.Fatalf("ListSecrets() first call error = %v", err)
 	}
 
-	secrets2, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "")
+	secrets2, _, _, err := storage.ListSecrets(ctx, "projects/ordering-test", 100, "", "")
 	if err != nil {
 		t.Fatalf("ListSecrets() second call error = %v", err)
 	}
@@ -405,10 +405,10 @@ func TestListSecrets_DeterministicOrdering(t *testing.T) {
 		}
 	}
 
-	// Assert first result is lexicographically smallest
-	expectedFirst := "projects/ordering-test/secrets/a-secret"
+	// Assert the last-created secret (n-secret) appears first (descending CreateTime order)
+	expectedFirst := "projects/ordering-test/secrets/n-secret"
 	if secrets1[0].Name != expectedFirst {
-		t.Errorf("First secret = %s, want %s", secrets1[0].Name, expectedFirst)
+		t.Errorf("First secret = %s, want %s (descending create time order)", secrets1[0].Name, expectedFirst)
 	}
 }
 
@@ -434,7 +434,7 @@ func TestListSecretVersions_NumericOrdering(t *testing.T) {
 		}
 	}
 
-	versions, _, err := storage.ListSecretVersions(ctx, secretName, 100, "", "")
+	versions, _, _, err := storage.ListSecretVersions(ctx, secretName, 100, "", "")
 	if err != nil {
 		t.Fatalf("ListSecretVersions() error = %v", err)
 	}
@@ -443,9 +443,9 @@ func TestListSecretVersions_NumericOrdering(t *testing.T) {
 		t.Fatalf("Expected 12 versions, got %d", len(versions))
 	}
 
-	// Assert versions are returned in numeric order: 1, 2, 3, ..., 10, 11, 12
+	// Assert versions are returned in descending numeric order: 12, 11, 10, ..., 2, 1
 	for i, v := range versions {
-		expectedVersionNum := i + 1
+		expectedVersionNum := 12 - i
 		expectedName := fmt.Sprintf("%s/versions/%d", secretName, expectedVersionNum)
 		if v.Name != expectedName {
 			t.Errorf("Version at index %d: got %s, want %s", i, v.Name, expectedName)
