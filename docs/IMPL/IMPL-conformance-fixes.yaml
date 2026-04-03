@@ -1,0 +1,1521 @@
+title: 'Secret Manager Conformance Fixes: etag, crc32c, destroy_time, version_aliases, filter, IAM'
+feature_slug: conformance-fixes
+verdict: SUITABLE
+suitability_assessment: |-
+    6 critical conformance issues are fully specified — no investigation-first work required.
+    All root causes are confirmed (conformance report 2026-04-03). File decomposition is clean
+    with disjoint ownership: Agent A owns storage.go + storage_coverage_test.go (struct fields,
+    new storage logic, update callers of changed signatures), Agent B owns server.go + new
+    iam_storage.go (server-layer changes + IAM in-memory store), Agent C owns new tests in
+    Wave 2 after interfaces are stable.
+
+    The interface contract between A and B is fully specifiable before implementation:
+    - Storage.ListSecrets gains a filter string parameter and returns total_size (4-tuple)
+    - Storage.UpdateSecret gains versionAliases map parameter (5-param)
+    - Storage.AddSecretVersion signature unchanged (crc32c validation moves to server.go)
+    - Storage helper generateEtag() is internal (no cross-agent surface)
+    - IAMStorage type is new (iam_storage.go, owned by B)
+
+    storage_coverage_test.go is assigned to Agent A because it directly calls
+    storage.ListSecrets, storage.UpdateSecret, and storage.ListSecretVersions with the
+    old signatures — these must be updated in the same wave as the storage.go changes.
+
+    All 6 critical issues + 3 minor fixes map cleanly to 2 Wave-1 agents:
+    1. ListSecrets filter: A (parsing+filtering+sort order+total_size) + B (forwarding filter param)
+    2. crc32c integrity: A (store DataCrc32C, return in AccessSecretVersion) + B (validate on Add)
+    3. destroy_time: A only (StoredVersion.DestroyTime, set in DestroySecretVersion)
+    4. etag: A (generate+store on all mutations) + B (validate on Delete/Update/Enable/Disable/Destroy)
+    5. version_aliases: A (store+resolve in Get/Access) + B (forward from UpdateSecret update_mask)
+    6. IAM RPCs: B only (new iam_storage.go + 3 new methods on server.go)
+    Minor: sort order + total_size = A; ListSecretVersions sort order + total_size = A
+
+    Parallelization value: HIGH. go test ./... takes 10-30s. Two Wave-1 agents each touch
+    substantial logic (6-8 functions modified each). Wave-2 test agent adds ~200 lines of
+    new test coverage across 2 test files.
+
+    Estimated times:
+    - Scout: ~15 min
+    - Wave 1: 2 agents x 20 min avg = 20 min wall time (parallel)
+    - Wave 2: 1 agent x 15 min
+    - Merge + verify: ~5 min
+    Total SAW time: ~55 min
+    Sequential baseline: ~65 min
+    Recommendation: Clear speedup from parallelism on the two substantial Wave-1 agents.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/server/storage.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/server/storage_coverage_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/server/iam_storage.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/server/server.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/server/storage_test.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+    - file: internal/server/server_test.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+interface_contracts:
+    - name: Storage.ListSecrets
+      description: |-
+        ListSecrets gains a filter parameter and returns total_size as 4th return value.
+        Agent B must call it with req.GetFilter() and forward TotalSize to the response.
+        Agent A implements filter parsing (name: prefix, labels.key=value).
+      definition: |
+        func (s *Storage) ListSecrets(ctx context.Context, parent string, pageSize int32, pageToken string, filter string) ([]*secretmanagerpb.Secret, string, int32, error)
+        // Returns: secrets page, next page token, total_size (count before pagination), error
+      location: internal/server/storage.go
+    - name: Storage.UpdateSecret
+      description: |-
+        UpdateSecret gains a versionAliases parameter so Agent B can forward it from
+        the update_mask handler in server.go. Pass nil when version_aliases not in mask.
+      definition: |
+        func (s *Storage) UpdateSecret(ctx context.Context, secretName string, labels, annotations map[string]string, versionAliases map[string]int64) (*secretmanagerpb.Secret, error)
+      location: internal/server/storage.go
+    - name: Storage.ListSecretVersions (return signature change)
+      description: |-
+        ListSecretVersions gains a 4th return value total_size. Agent B must update the
+        call site in server.go to accept 4 return values and forward TotalSize to response.
+      definition: |
+        func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSize int32, pageToken, filter string) ([]*secretmanagerpb.SecretVersion, string, int32, error)
+        // Returns: versions page, next page token, total_size (count before pagination), error
+      location: internal/server/storage.go
+    - name: StoredSecret struct fields (new)
+      description: |-
+        StoredSecret gains Etag string and VersionAliases map fields. Agent A adds them;
+        Agent B reads VersionAliases via UpdateSecret and reads Etag via GetSecret (for
+        etag validation before mutations in server.go).
+      definition: |
+        type StoredSecret struct {
+            Name           string
+            CreateTime     *timestamppb.Timestamp
+            Labels         map[string]string
+            Annotations    map[string]string
+            Replication    *secretmanagerpb.Replication
+            Etag           string                  // NEW: generated on create, regenerated on update
+            VersionAliases map[string]int64        // NEW: user-defined alias -> version number mapping
+            Versions       map[string]*StoredVersion
+            NextVersion    int64
+        }
+      location: internal/server/storage.go
+    - name: StoredVersion struct fields (new)
+      description: |-
+        StoredVersion gains Etag, DataCrc32C, and DestroyTime fields. All surfaced via the
+        proto SecretVersion returned from storage functions (buildVersionProto helper).
+      definition: |
+        type StoredVersion struct {
+            Name        string
+            CreateTime  *timestamppb.Timestamp
+            State       secretmanagerpb.SecretVersion_State
+            Payload     []byte
+            Etag        string                 // NEW: generated on AddSecretVersion, regenerated on state mutation
+            DataCrc32C  int64                  // NEW: stored checksum from client (0 if absent)
+            DestroyTime *timestamppb.Timestamp // NEW: set when DESTROYED
+        }
+      location: internal/server/storage.go
+    - name: IAMStorage
+      description: |-
+        New type owned by Agent B in iam_storage.go. Stores IAM policies per resource name.
+        Used by the three new IAM methods on Server. Agent C writes tests against it via
+        the server methods.
+      definition: |
+        type IAMStorage struct {
+            mu       sync.RWMutex
+            policies map[string]*iampb.Policy
+        }
+        func NewIAMStorage() *IAMStorage
+        func (s *IAMStorage) GetPolicy(resource string) *iampb.Policy
+        func (s *IAMStorage) SetPolicy(resource string, policy *iampb.Policy) *iampb.Policy
+      location: internal/server/iam_storage.go
+    - name: Server IAM methods
+      description: |-
+        Three new methods on Server implementing the IAM RPCs using IAMStorage.
+        When iamClient is nil (IAM mode disabled): GetPolicy returns stored policy,
+        SetPolicy stores it, TestIamPermissions grants all requested permissions.
+        Agent C writes tests for all three.
+      definition: |
+        func (s *Server) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error)
+        func (s *Server) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest) (*iampb.Policy, error)
+        func (s *Server) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error)
+      location: internal/server/server.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |-
+            ## Role
+            Storage-layer conformance fixes for gcp-secret-manager-emulator.
+
+            ## Files to modify
+            - internal/server/storage.go — primary implementation
+            - internal/server/storage_coverage_test.go — update callers of changed signatures
+
+            ## Package
+            Package: server (both files are in the same package)
+
+            ## What to implement in storage.go
+
+            ### 1. Expand StoredSecret struct
+            Add two fields to the existing StoredSecret struct:
+            ```go
+            Etag           string           // generated on create, regenerated on update
+            VersionAliases map[string]int64 // user-defined alias -> version number
+            ```
+
+            ### 2. Expand StoredVersion struct
+            Add three fields to the existing StoredVersion struct:
+            ```go
+            Etag        string                 // generated on AddSecretVersion + state mutation
+            DataCrc32C  int64                  // stored checksum (0 if client did not supply)
+            DestroyTime *timestamppb.Timestamp // set when state becomes DESTROYED
+            ```
+
+            ### 3. Add etag generation helper
+            Add this unexported function to storage.go:
+            ```go
+            import "encoding/base64"
+
+            func generateEtag(name string, t *timestamppb.Timestamp, extra ...string) string {
+                s := fmt.Sprintf("%s:%d:%s", name, t.AsTime().UnixNano(), strings.Join(extra, ":"))
+                return base64.URLEncoding.EncodeToString([]byte(s))
+            }
+            ```
+
+            ### 4. Add buildSecretProto helper
+            Add this unexported helper to eliminate duplicated return construction:
+            ```go
+            func buildSecretProto(stored *StoredSecret) *secretmanagerpb.Secret {
+                // Convert map[string]int64 to map[string]int32 for proto
+                var aliases map[string]int32
+                if len(stored.VersionAliases) > 0 {
+                    aliases = make(map[string]int32, len(stored.VersionAliases))
+                    for k, v := range stored.VersionAliases {
+                        aliases[k] = int32(v)
+                    }
+                }
+                return &secretmanagerpb.Secret{
+                    Name:           stored.Name,
+                    CreateTime:     stored.CreateTime,
+                    Labels:         stored.Labels,
+                    Annotations:    stored.Annotations,
+                    Replication:    stored.Replication,
+                    Etag:           stored.Etag,
+                    VersionAliases: aliases,
+                }
+            }
+            ```
+
+            ### 5. Add buildVersionProto helper
+            ```go
+            func buildVersionProto(versionName string, version *StoredVersion) *secretmanagerpb.SecretVersion {
+                sv := &secretmanagerpb.SecretVersion{
+                    Name:       versionName,
+                    CreateTime: version.CreateTime,
+                    State:      version.State,
+                    Etag:       version.Etag,
+                }
+                if version.State == secretmanagerpb.SecretVersion_DESTROYED && version.DestroyTime != nil {
+                    sv.DestroyTime = version.DestroyTime
+                }
+                return sv
+            }
+            ```
+
+            ### 6. Update CreateSecret
+            After setting stored fields, add:
+            ```go
+            stored.Etag = generateEtag(secretName, now)
+            stored.VersionAliases = make(map[string]int64)
+            ```
+            Replace the inline return with: `return buildSecretProto(stored), nil`
+
+            ### 7. Update AddSecretVersion
+            After creating version, add:
+            ```go
+            // Store crc32c if client provided it
+            if payload.GetDataCrc32C() != nil {
+                version.DataCrc32C = payload.GetDataCrc32C().GetValue()
+            }
+            version.Etag = generateEtag(versionName, now, versionID)
+            ```
+            Replace the inline return with: `return buildVersionProto(versionName, version), nil`
+
+            ### 8. Update AccessSecretVersion response
+            Add import: `"google.golang.org/protobuf/types/known/wrapperspb"`
+            Change the return to include DataCrc32C:
+            ```go
+            return &secretmanagerpb.AccessSecretVersionResponse{
+                Name: versionName,
+                Payload: &secretmanagerpb.SecretPayload{
+                    Data:       version.Payload,
+                    DataCrc32C: wrapperspb.Int64(version.DataCrc32C),
+                },
+            }, nil
+            ```
+
+            ### 9. Update DestroySecretVersion
+            When transitioning to DESTROYED (the non-idempotent path):
+            ```go
+            version.State = secretmanagerpb.SecretVersion_DESTROYED
+            version.Payload = nil
+            version.DestroyTime = timestamppb.Now()
+            version.Etag = generateEtag(version.Name, version.DestroyTime, "DESTROYED")
+            ```
+            Replace both return statements with buildVersionProto(versionName, version).
+
+            ### 10. Update EnableSecretVersion and DisableSecretVersion
+            After changing version.State, regenerate etag:
+            ```go
+            version.Etag = generateEtag(version.Name, timestamppb.Now(), version.State.String())
+            ```
+            Replace inline return with buildVersionProto(versionName, version).
+
+            ### 11. Update GetSecret to use buildSecretProto
+            Replace the inline `&secretmanagerpb.Secret{...}` return with `buildSecretProto(stored)`.
+
+            ### 12. Update GetSecretVersion to use buildVersionProto
+            Replace the inline return with `return buildVersionProto(versionName, version), nil`.
+
+            ### 13. Update UpdateSecret signature and implementation
+            Change signature to:
+            ```go
+            func (s *Storage) UpdateSecret(ctx context.Context, secretName string, labels, annotations map[string]string, versionAliases map[string]int64) (*secretmanagerpb.Secret, error)
+            ```
+            In the body, after updating labels/annotations, add:
+            ```go
+            if versionAliases != nil {
+                stored.VersionAliases = versionAliases
+            }
+            // Regenerate etag on any mutation
+            stored.Etag = generateEtag(stored.Name, stored.CreateTime, fmt.Sprintf("%d", stored.NextVersion))
+            ```
+            Replace the return with `return buildSecretProto(stored), nil`.
+
+            ### 14. Update ListSecrets signature, filtering, sort order, and total_size
+            Change signature to:
+            ```go
+            func (s *Storage) ListSecrets(ctx context.Context, parent string, pageSize int32, pageToken string, filter string) ([]*secretmanagerpb.Secret, string, int32, error)
+            ```
+
+            Add filter parsing helper (unexported):
+            ```go
+            func parseSecretFilter(filter string) func(*secretmanagerpb.Secret) bool {
+                filter = strings.TrimSpace(filter)
+                if filter == "" {
+                    return nil // include all
+                }
+                if strings.HasPrefix(filter, "name:") {
+                    prefix := strings.TrimPrefix(filter, "name:")
+                    return func(s *secretmanagerpb.Secret) bool {
+                        parts := strings.Split(s.Name, "/secrets/")
+                        if len(parts) != 2 {
+                            return false
+                        }
+                        return strings.HasPrefix(strings.ToLower(parts[1]), strings.ToLower(prefix))
+                    }
+                }
+                if strings.HasPrefix(filter, "labels.") {
+                    // labels.KEY=VALUE
+                    rest := strings.TrimPrefix(filter, "labels.")
+                    kv := strings.SplitN(rest, "=", 2)
+                    if len(kv) == 2 {
+                        key, val := kv[0], kv[1]
+                        return func(s *secretmanagerpb.Secret) bool {
+                            return s.Labels[key] == val
+                        }
+                    }
+                }
+                return nil // unknown filter expression = include all
+            }
+            ```
+
+            In ListSecrets body:
+            1. Build allSecrets using buildSecretProto(stored) for each match.
+            2. Apply filter after building the list:
+               ```go
+               matchFn := parseSecretFilter(filter)
+               if matchFn != nil {
+                   var filtered []*secretmanagerpb.Secret
+                   for _, s := range allSecrets {
+                       if matchFn(s) {
+                           filtered = append(filtered, s)
+                       }
+                   }
+                   allSecrets = filtered
+               }
+               ```
+            3. Sort descending by CreateTime:
+               ```go
+               sort.Slice(allSecrets, func(i, j int) bool {
+                   ti := allSecrets[i].CreateTime.AsTime()
+                   tj := allSecrets[j].CreateTime.AsTime()
+                   return ti.After(tj)
+               })
+               ```
+            4. Record totalSize = int32(len(allSecrets)) AFTER filter, BEFORE pagination.
+            5. Paginate as before.
+            6. Return: `return results, nextToken, totalSize, nil`
+            7. Update all error returns to return 4 values: `return nil, "", 0, err`
+
+            ### 15. Update ListSecretVersions signature, sort order, and total_size
+            Change signature to:
+            ```go
+            func (s *Storage) ListSecretVersions(ctx context.Context, parent string, pageSize int32, pageToken, filter string) ([]*secretmanagerpb.SecretVersion, string, int32, error)
+            ```
+            Change sort to descending (highest version first):
+            ```go
+            sort.Slice(versionIDs, func(i, j int) bool {
+                a, _ := strconv.Atoi(versionIDs[i])
+                b, _ := strconv.Atoi(versionIDs[j])
+                return a > b
+            })
+            ```
+            Use buildVersionProto when building each element of allVersions.
+            Record totalSize = int32(len(allVersions)) AFTER filter, BEFORE pagination.
+            Return 4 values. Update all error returns to `return nil, "", 0, err`.
+
+            ### 16. Update version_aliases resolution in GetSecretVersion and AccessSecretVersion
+            After resolving "latest", also resolve user-defined aliases from stored.VersionAliases.
+            Add this block in BOTH GetSecretVersion and AccessSecretVersion, after the "latest" branch:
+            ```go
+            // Resolve user-defined aliases
+            if versionID != "latest" {
+                if num, ok := stored.VersionAliases[versionID]; ok {
+                    versionID = fmt.Sprintf("%d", num)
+                    versionName = fmt.Sprintf("%s/versions/%s", secretName, versionID)
+                }
+            }
+            ```
+            Note: for GetSecretVersion this goes after the existing `if versionID == "latest"` block.
+            For AccessSecretVersion it goes after the existing `if versionID == "latest"` block too.
+
+            ## What to update in storage_coverage_test.go
+
+            The coverage test directly calls storage methods whose signatures have changed.
+            Update all call sites:
+
+            1. `storage.UpdateSecret(ctx, name, labels, annotations)` → add nil as 5th arg:
+               `storage.UpdateSecret(ctx, name, labels, annotations, nil)`
+               There are 3 such call sites (lines ~427, ~439, ~452). Find them all with grep
+               and update each one.
+
+            2. `storage.ListSecrets(ctx, parent, size, token)` → add "" as 5th arg and
+               accept 4 return values. The current code uses `secrets, token, err := ...`
+               Change to `secrets, token, _, err := storage.ListSecrets(ctx, parent, size, token, "")`.
+               There are 4 such call sites (lines ~601, ~625, ~638, ~648). Find them all.
+
+            3. `storage.ListSecretVersions(ctx, parent, size, token, filter)` → already has
+               5 args but now returns 4 values. Change `versions, token, err :=` to
+               `versions, token, _, err :=` for each call site.
+               There are ~8 such call sites. Find them all.
+
+            Do NOT change the test logic — only update the function call signatures and
+            return-value destructuring.
+
+            ## Verification gate
+            ```
+            go build ./internal/server/...
+            go vet ./internal/server/...
+            go test ./internal/server/... -run "TestStorage"
+            ```
+
+            ## Constraints
+            - Do NOT modify server.go or any test file other than storage_coverage_test.go.
+            - "encoding/base64" and "google.golang.org/protobuf/types/known/wrapperspb" must
+              be added to the imports in storage.go.
+            - wrapperspb.Int64(val) returns *wrapperspb.Int64Value from an int64 value.
+            - The VersionAliases proto field is map[string]int32 — store internally as int64
+              (cast is safe for version numbers which are small integers).
+            - secretmanagerpb.SecretVersion_State has a .String() method for etag extra input.
+            - timestamppb.Now() can be called inside EnableSecretVersion and DisableSecretVersion
+              for the etag extra time parameter (the version's create time is not updated; only
+              etag changes).
+          files:
+            - internal/server/storage.go
+            - internal/server/storage_coverage_test.go
+        - id: B
+          task: |-
+            ## Role
+            Server-layer conformance fixes: IAM RPCs, crc32c validation, etag enforcement,
+            filter forwarding, version_aliases update mask handling, total_size forwarding.
+
+            ## Files to modify/create
+            - internal/server/server.go — modify existing file
+            - internal/server/iam_storage.go — create new file
+
+            ## Package
+            Package: server
+
+            ## Part 1: Create internal/server/iam_storage.go
+
+            Create a new file with content:
+            ```go
+            package server
+
+            import (
+                "sync"
+
+                "cloud.google.com/go/iam/apiv1/iampb"
+            )
+
+            // IAMStorage stores IAM policies in memory, keyed by resource name.
+            type IAMStorage struct {
+                mu       sync.RWMutex
+                policies map[string]*iampb.Policy
+            }
+
+            // NewIAMStorage creates an empty IAM policy store.
+            func NewIAMStorage() *IAMStorage {
+                return &IAMStorage{policies: make(map[string]*iampb.Policy)}
+            }
+
+            // GetPolicy returns the stored policy for the given resource.
+            // Returns an empty default policy if none has been set.
+            func (s *IAMStorage) GetPolicy(resource string) *iampb.Policy {
+                s.mu.RLock()
+                defer s.mu.RUnlock()
+                if p, ok := s.policies[resource]; ok {
+                    return p
+                }
+                return &iampb.Policy{}
+            }
+
+            // SetPolicy stores the IAM policy for the given resource and returns it.
+            func (s *IAMStorage) SetPolicy(resource string, policy *iampb.Policy) *iampb.Policy {
+                s.mu.Lock()
+                defer s.mu.Unlock()
+                if policy == nil {
+                    policy = &iampb.Policy{}
+                }
+                s.policies[resource] = policy
+                return policy
+            }
+            ```
+
+            ## Part 2: Modify internal/server/server.go
+
+            ### 2a. Add iamStorage field to Server struct
+            In the Server struct definition, add:
+            ```go
+            iamStorage *IAMStorage
+            ```
+
+            ### 2b. Initialize iamStorage in NewServer
+            In NewServer(), in the struct literal `s := &Server{...}`, add:
+            ```go
+            iamStorage: NewIAMStorage(),
+            ```
+
+            ### 2c. Add import for iampb and hash/crc32
+            Add to the imports block:
+            ```go
+            "hash/crc32"
+            "cloud.google.com/go/iam/apiv1/iampb"
+            ```
+            Note: emulatorauth is already imported. Keep all existing imports.
+
+            ### 2d. Add package-level crc32c table variable
+            After the import block, add:
+            ```go
+            var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
+            ```
+
+            ### 2e. Add three IAM methods
+            Add these three new methods to server.go:
+
+            ```go
+            // GetIamPolicy returns the IAM policy for a secret resource.
+            // Implements google.iam.v1.IAMPolicy.GetIamPolicy
+            func (s *Server) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
+                if req.GetResource() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "resource is required")
+                }
+                if err := s.checkPermission(ctx, "GetIamPolicy", authz.NormalizeSecretResource(req.GetResource())); err != nil {
+                    return nil, err
+                }
+                return s.iamStorage.GetPolicy(req.GetResource()), nil
+            }
+
+            // SetIamPolicy sets the IAM policy for a secret resource.
+            // Implements google.iam.v1.IAMPolicy.SetIamPolicy
+            func (s *Server) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
+                if req.GetResource() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "resource is required")
+                }
+                if err := s.checkPermission(ctx, "SetIamPolicy", authz.NormalizeSecretResource(req.GetResource())); err != nil {
+                    return nil, err
+                }
+                return s.iamStorage.SetPolicy(req.GetResource(), req.GetPolicy()), nil
+            }
+
+            // TestIamPermissions tests whether the caller has the specified permissions on a resource.
+            // Implements google.iam.v1.IAMPolicy.TestIamPermissions
+            func (s *Server) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
+                if req.GetResource() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "resource is required")
+                }
+                if s.iamClient == nil {
+                    // IAM disabled: grant all requested permissions
+                    return &iampb.TestIamPermissionsResponse{
+                        Permissions: req.GetPermissions(),
+                    }, nil
+                }
+                // IAM enabled: check each permission individually
+                principal := emulatorauth.ExtractPrincipalFromContext(ctx)
+                var granted []string
+                for _, perm := range req.GetPermissions() {
+                    allowed, err := s.iamClient.CheckPermission(ctx, principal, req.GetResource(), perm)
+                    if err == nil && allowed {
+                        granted = append(granted, perm)
+                    }
+                }
+                return &iampb.TestIamPermissionsResponse{Permissions: granted}, nil
+            }
+            ```
+
+            ### 2f. Update AddSecretVersion to validate crc32c
+            In the existing AddSecretVersion method, add crc32c validation BEFORE calling
+            s.storage.AddSecretVersion. The validation goes after the checkPermission call:
+            ```go
+            // Validate crc32c integrity if the client provided a checksum
+            if req.GetPayload().GetDataCrc32C() != nil {
+                clientCrc := req.GetPayload().GetDataCrc32C().GetValue()
+                computed := int64(crc32.Checksum(req.GetPayload().GetData(), crc32cTable))
+                if clientCrc != computed {
+                    return nil, status.Errorf(codes.DataLoss,
+                        "data_crc32c mismatch: client provided %d, server computed %d",
+                        clientCrc, computed)
+                }
+            }
+            ```
+
+            ### 2g. Update UpdateSecret to handle version_aliases in update mask
+            In the UpdateSecret method, change the update mask parsing block. Currently it
+            declares `var labels, annotations map[string]string` and has a switch. Update to:
+            ```go
+            var labels, annotations map[string]string
+            var versionAliases map[string]int64
+
+            for _, path := range updateMask.GetPaths() {
+                switch path {
+                case "labels":
+                    labels = req.GetSecret().GetLabels()
+                case "annotations":
+                    annotations = req.GetSecret().GetAnnotations()
+                case "version_aliases":
+                    protoAliases := req.GetSecret().GetVersionAliases()
+                    if protoAliases != nil {
+                        versionAliases = make(map[string]int64, len(protoAliases))
+                        for k, v := range protoAliases {
+                            versionAliases[k] = int64(v)
+                        }
+                    }
+                default:
+                    // Ignore unsupported fields (following GCP behavior - silently skip)
+                }
+            }
+            ```
+            Also add etag validation before the storage call. After the loop, add:
+            ```go
+            if req.GetSecret().GetEtag() != "" {
+                existing, err := s.storage.GetSecret(ctx, secretName)
+                if err != nil {
+                    return nil, err
+                }
+                if existing.GetEtag() != req.GetSecret().GetEtag() {
+                    return nil, status.Errorf(codes.Aborted,
+                        "etag mismatch: provided %q does not match current etag",
+                        req.GetSecret().GetEtag())
+                }
+            }
+            ```
+            Then change the storage call to:
+            ```go
+            return s.storage.UpdateSecret(ctx, secretName, labels, annotations, versionAliases)
+            ```
+
+            ### 2h. Update DeleteSecret to validate etag
+            Replace the existing DeleteSecret implementation with:
+            ```go
+            func (s *Server) DeleteSecret(ctx context.Context, req *secretmanagerpb.DeleteSecretRequest) (*emptypb.Empty, error) {
+                if req.GetName() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "name is required")
+                }
+                if err := s.checkPermission(ctx, "DeleteSecret", authz.NormalizeSecretResource(req.GetName())); err != nil {
+                    return nil, err
+                }
+                if req.GetEtag() != "" {
+                    existing, err := s.storage.GetSecret(ctx, req.GetName())
+                    if err != nil {
+                        return nil, err
+                    }
+                    if existing.GetEtag() != req.GetEtag() {
+                        return nil, status.Errorf(codes.Aborted,
+                            "etag mismatch: provided %q does not match current etag",
+                            req.GetEtag())
+                    }
+                }
+                if err := s.storage.DeleteSecret(ctx, req.GetName()); err != nil {
+                    return nil, err
+                }
+                return &emptypb.Empty{}, nil
+            }
+            ```
+
+            ### 2i. Update EnableSecretVersion to validate etag
+            Replace the existing EnableSecretVersion implementation with:
+            ```go
+            func (s *Server) EnableSecretVersion(ctx context.Context, req *secretmanagerpb.EnableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
+                if req.GetName() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "name is required")
+                }
+                if err := s.checkPermission(ctx, "EnableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
+                    return nil, err
+                }
+                if req.GetEtag() != "" {
+                    existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+                    if err != nil {
+                        return nil, err
+                    }
+                    if existing.GetEtag() != req.GetEtag() {
+                        return nil, status.Errorf(codes.Aborted,
+                            "etag mismatch: provided %q does not match current etag",
+                            req.GetEtag())
+                    }
+                }
+                return s.storage.EnableSecretVersion(ctx, req.GetName())
+            }
+            ```
+
+            ### 2j. Update DisableSecretVersion to validate etag
+            Replace the existing DisableSecretVersion implementation with:
+            ```go
+            func (s *Server) DisableSecretVersion(ctx context.Context, req *secretmanagerpb.DisableSecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
+                if req.GetName() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "name is required")
+                }
+                if err := s.checkPermission(ctx, "DisableSecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
+                    return nil, err
+                }
+                if req.GetEtag() != "" {
+                    existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+                    if err != nil {
+                        return nil, err
+                    }
+                    if existing.GetEtag() != req.GetEtag() {
+                        return nil, status.Errorf(codes.Aborted,
+                            "etag mismatch: provided %q does not match current etag",
+                            req.GetEtag())
+                    }
+                }
+                return s.storage.DisableSecretVersion(ctx, req.GetName())
+            }
+            ```
+
+            ### 2k. Update DestroySecretVersion to validate etag and remove stale comment
+            Replace the existing DestroySecretVersion implementation with:
+            ```go
+            func (s *Server) DestroySecretVersion(ctx context.Context, req *secretmanagerpb.DestroySecretVersionRequest) (*secretmanagerpb.SecretVersion, error) {
+                if req.GetName() == "" {
+                    return nil, status.Error(codes.InvalidArgument, "name is required")
+                }
+                if err := s.checkPermission(ctx, "DestroySecretVersion", authz.NormalizeSecretVersionResource(req.GetName())); err != nil {
+                    return nil, err
+                }
+                if req.GetEtag() != "" {
+                    existing, err := s.storage.GetSecretVersion(ctx, req.GetName())
+                    if err != nil {
+                        return nil, err
+                    }
+                    if existing.GetEtag() != req.GetEtag() {
+                        return nil, status.Errorf(codes.Aborted,
+                            "etag mismatch: provided %q does not match current etag",
+                            req.GetEtag())
+                    }
+                }
+                return s.storage.DestroySecretVersion(ctx, req.GetName())
+            }
+            ```
+            (The comment "// Note: etag is optional and not enforced in this implementation"
+            is removed by replacing the whole method.)
+
+            ### 2l. Update ListSecrets to forward filter and use total_size
+            Replace the storage call and return in ListSecrets:
+            ```go
+            secrets, token, totalSize, err := s.storage.ListSecrets(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
+            if err != nil {
+                return nil, err
+            }
+            return &secretmanagerpb.ListSecretsResponse{
+                Secrets:       secrets,
+                NextPageToken: token,
+                TotalSize:     totalSize,
+            }, nil
+            ```
+
+            ### 2m. Update ListSecretVersions to use total_size
+            Replace the storage call and return in ListSecretVersions:
+            ```go
+            versions, token, totalSize, err := s.storage.ListSecretVersions(ctx, req.GetParent(), req.GetPageSize(), req.GetPageToken(), req.GetFilter())
+            if err != nil {
+                return nil, err
+            }
+            return &secretmanagerpb.ListSecretVersionsResponse{
+                Versions:      versions,
+                NextPageToken: token,
+                TotalSize:     totalSize,
+            }, nil
+            ```
+
+            ## Verification gate
+            ```
+            go build ./internal/server/...
+            go vet ./internal/server/...
+            go test ./internal/server/... -run "TestServer"
+            ```
+
+            ## Constraints
+            - Do NOT modify storage.go (owned by Agent A).
+            - iampb is already in go.mod as "cloud.google.com/go/iam v1.5.3" — import
+              "cloud.google.com/go/iam/apiv1/iampb".
+            - "hash/crc32" is stdlib.
+            - Return code for crc32c mismatch: codes.DataLoss (as specified in the feature request).
+            - Return code for etag mismatch: codes.Aborted (GCP spec).
+            - The TestIamPermissions "grant all when iamClient == nil" behavior matches the
+              existing checkPermission function which returns nil (allow all) when iamClient == nil.
+            - emulatorauth.ExtractPrincipalFromContext is already imported via existing server.go.
+          files:
+            - internal/server/server.go
+            - internal/server/iam_storage.go
+    - number: 2
+      agents:
+        - id: C
+          task: |-
+            ## Role
+            Add conformance test coverage for all Wave 1 fixes.
+
+            ## Files to modify
+            - internal/server/storage_test.go — add new storage-level test functions
+            - internal/server/server_test.go — add new server-level test functions
+
+            ## CRITICAL: Add only new test functions — do not modify existing tests.
+
+            ## What to add to storage_test.go
+
+            Import additions needed (add to existing import block if not present):
+            ```go
+            "hash/crc32"
+            "google.golang.org/protobuf/types/known/wrapperspb"
+            ```
+
+            ### TestStorage_EtagGeneration
+            ```go
+            func TestStorage_EtagGeneration(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                secret, err := s.CreateSecret(ctx, "projects/p", "s1", &secretmanagerpb.Secret{})
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                if secret.GetEtag() == "" {
+                    t.Error("CreateSecret: etag should be non-empty")
+                }
+
+                updated, err := s.UpdateSecret(ctx, secret.Name, map[string]string{"k": "v"}, nil, nil)
+                if err != nil {
+                    t.Fatalf("UpdateSecret: %v", err)
+                }
+                if updated.GetEtag() == "" {
+                    t.Error("UpdateSecret: etag should be non-empty")
+                }
+                // etag changes after mutation
+                if updated.GetEtag() == secret.GetEtag() {
+                    t.Errorf("UpdateSecret: etag should change after mutation, got same etag %q", secret.GetEtag())
+                }
+            }
+            ```
+
+            ### TestStorage_DestroyTime
+            ```go
+            func TestStorage_DestroyTime(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                _, err := s.CreateSecret(ctx, "projects/p", "s-destroy", &secretmanagerpb.Secret{})
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/s-destroy"
+                _, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("data")})
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+                versionName := parent + "/versions/1"
+
+                destroyed, err := s.DestroySecretVersion(ctx, versionName)
+                if err != nil {
+                    t.Fatalf("DestroySecretVersion: %v", err)
+                }
+                if destroyed.GetDestroyTime() == nil {
+                    t.Error("DestroySecretVersion: destroy_time should be set")
+                }
+
+                // Idempotent destroy should also return destroy_time
+                destroyed2, err := s.DestroySecretVersion(ctx, versionName)
+                if err != nil {
+                    t.Fatalf("Idempotent DestroySecretVersion: %v", err)
+                }
+                if destroyed2.GetDestroyTime() == nil {
+                    t.Error("Idempotent DestroySecretVersion: destroy_time should be set")
+                }
+            }
+            ```
+
+            ### TestStorage_DataCrc32C
+            ```go
+            func TestStorage_DataCrc32C(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                _, err := s.CreateSecret(ctx, "projects/p", "s-crc", &secretmanagerpb.Secret{})
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/s-crc"
+                data := []byte("hello world")
+                table := crc32.MakeTable(crc32.Castagnoli)
+                checksum := int64(crc32.Checksum(data, table))
+
+                _, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{
+                    Data:       data,
+                    DataCrc32C: wrapperspb.Int64(checksum),
+                })
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+
+                resp, err := s.AccessSecretVersion(ctx, parent+"/versions/1")
+                if err != nil {
+                    t.Fatalf("AccessSecretVersion: %v", err)
+                }
+                if resp.GetPayload().GetDataCrc32C() == nil {
+                    t.Fatal("AccessSecretVersion: data_crc32c should be non-nil")
+                }
+                if resp.GetPayload().GetDataCrc32C().GetValue() != checksum {
+                    t.Errorf("AccessSecretVersion: data_crc32c = %d, want %d",
+                        resp.GetPayload().GetDataCrc32C().GetValue(), checksum)
+                }
+            }
+            ```
+
+            ### TestStorage_VersionAliases
+            ```go
+            func TestStorage_VersionAliases(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                _, err := s.CreateSecret(ctx, "projects/p", "s-alias", &secretmanagerpb.Secret{})
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/s-alias"
+                _, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("v1data")})
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+
+                // Set version_aliases via UpdateSecret
+                _, err = s.UpdateSecret(ctx, parent, nil, nil, map[string]int64{"myalias": 1})
+                if err != nil {
+                    t.Fatalf("UpdateSecret with aliases: %v", err)
+                }
+
+                // GetSecretVersion via alias
+                sv, err := s.GetSecretVersion(ctx, parent+"/versions/myalias")
+                if err != nil {
+                    t.Fatalf("GetSecretVersion(myalias): %v", err)
+                }
+                if sv.GetName() != parent+"/versions/1" {
+                    t.Errorf("GetSecretVersion alias: name = %q, want %q", sv.GetName(), parent+"/versions/1")
+                }
+
+                // AccessSecretVersion via alias
+                resp, err := s.AccessSecretVersion(ctx, parent+"/versions/myalias")
+                if err != nil {
+                    t.Fatalf("AccessSecretVersion(myalias): %v", err)
+                }
+                if string(resp.GetPayload().GetData()) != "v1data" {
+                    t.Errorf("AccessSecretVersion alias: data = %q, want v1data", resp.GetPayload().GetData())
+                }
+            }
+            ```
+
+            ### TestStorage_ListSecretsFilter
+            ```go
+            func TestStorage_ListSecretsFilter(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                for _, id := range []string{"foo-1", "foo-2", "bar-1"} {
+                    labels := map[string]string{}
+                    if id == "foo-1" {
+                        labels["env"] = "prod"
+                    }
+                    _, err := s.CreateSecret(ctx, "projects/p", id, &secretmanagerpb.Secret{Labels: labels})
+                    if err != nil {
+                        t.Fatalf("CreateSecret(%s): %v", id, err)
+                    }
+                }
+
+                tests := []struct {
+                    filter string
+                    want   int
+                }{
+                    {"name:foo", 2},
+                    {"name:bar", 1},
+                    {"name:baz", 0},
+                    {"labels.env=prod", 1},
+                    {"", 3},
+                }
+                for _, tt := range tests {
+                    secrets, _, _, err := s.ListSecrets(ctx, "projects/p", 100, "", tt.filter)
+                    if err != nil {
+                        t.Fatalf("ListSecrets(filter=%q): %v", tt.filter, err)
+                    }
+                    if len(secrets) != tt.want {
+                        t.Errorf("ListSecrets(filter=%q): got %d secrets, want %d", tt.filter, len(secrets), tt.want)
+                    }
+                }
+            }
+            ```
+
+            ### TestStorage_TotalSize
+            ```go
+            func TestStorage_TotalSize(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                for i := 0; i < 5; i++ {
+                    _, err := s.CreateSecret(ctx, "projects/p", fmt.Sprintf("secret-%d", i), &secretmanagerpb.Secret{})
+                    if err != nil {
+                        t.Fatalf("CreateSecret: %v", err)
+                    }
+                }
+
+                // Page size 2, should have total_size = 5
+                _, _, total, err := s.ListSecrets(ctx, "projects/p", 2, "", "")
+                if err != nil {
+                    t.Fatalf("ListSecrets: %v", err)
+                }
+                if total != 5 {
+                    t.Errorf("ListSecrets TotalSize = %d, want 5", total)
+                }
+
+                // ListSecretVersions total_size
+                parent := "projects/p/secrets/secret-0"
+                for i := 0; i < 4; i++ {
+                    _, err := s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("x")})
+                    if err != nil {
+                        t.Fatalf("AddSecretVersion: %v", err)
+                    }
+                }
+                _, _, vTotal, err := s.ListSecretVersions(ctx, parent, 2, "", "")
+                if err != nil {
+                    t.Fatalf("ListSecretVersions: %v", err)
+                }
+                if vTotal != 4 {
+                    t.Errorf("ListSecretVersions TotalSize = %d, want 4", vTotal)
+                }
+            }
+            ```
+
+            ### TestStorage_VersionEtag
+            ```go
+            func TestStorage_VersionEtag(t *testing.T) {
+                s := NewStorage()
+                ctx := context.Background()
+
+                _, err := s.CreateSecret(ctx, "projects/p", "s-vetag", &secretmanagerpb.Secret{})
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/s-vetag"
+                sv, err := s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("data")})
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+                if sv.GetEtag() == "" {
+                    t.Error("AddSecretVersion: etag should be non-empty")
+                }
+                origEtag := sv.GetEtag()
+
+                disabled, err := s.DisableSecretVersion(ctx, parent+"/versions/1")
+                if err != nil {
+                    t.Fatalf("DisableSecretVersion: %v", err)
+                }
+                if disabled.GetEtag() == "" {
+                    t.Error("DisableSecretVersion: etag should be non-empty")
+                }
+                if disabled.GetEtag() == origEtag {
+                    t.Errorf("DisableSecretVersion: etag should change after state mutation, still %q", origEtag)
+                }
+            }
+            ```
+
+            ## What to add to server_test.go
+
+            Import additions needed (add to existing import block if not present):
+            ```go
+            "hash/crc32"
+            "cloud.google.com/go/iam/apiv1/iampb"
+            "google.golang.org/protobuf/types/known/wrapperspb"
+            ```
+
+            ### TestServer_AddSecretVersion_Crc32cValidation
+            Use the standard NewServer() pattern. Create a secret "projects/p/secrets/crc-test".
+            Then:
+            - Add version with correct crc32c: expect success
+            - Add version with wrong crc32c (correct + 1): expect codes.DataLoss
+
+            ```go
+            func TestServer_AddSecretVersion_Crc32cValidation(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                _, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "crc-test",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+
+                data := []byte("payload data")
+                table := crc32.MakeTable(crc32.Castagnoli)
+                correct := int64(crc32.Checksum(data, table))
+
+                // Correct checksum: expect success
+                _, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+                    Parent: "projects/p/secrets/crc-test",
+                    Payload: &secretmanagerpb.SecretPayload{
+                        Data:       data,
+                        DataCrc32C: wrapperspb.Int64(correct),
+                    },
+                })
+                if err != nil {
+                    t.Fatalf("AddSecretVersion correct crc32c: unexpected error %v", err)
+                }
+
+                // Wrong checksum: expect DataLoss
+                _, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+                    Parent: "projects/p/secrets/crc-test",
+                    Payload: &secretmanagerpb.SecretPayload{
+                        Data:       data,
+                        DataCrc32C: wrapperspb.Int64(correct + 1),
+                    },
+                })
+                if err == nil {
+                    t.Fatal("AddSecretVersion wrong crc32c: expected error, got nil")
+                }
+                st, ok := status.FromError(err)
+                if !ok || st.Code() != codes.DataLoss {
+                    t.Errorf("AddSecretVersion wrong crc32c: got code %v, want DataLoss", st.Code())
+                }
+            }
+            ```
+
+            ### TestServer_DeleteSecret_EtagValidation
+            ```go
+            func TestServer_DeleteSecret_EtagValidation(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                created, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "etag-del",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                correctEtag := created.GetEtag()
+                if correctEtag == "" {
+                    t.Fatal("CreateSecret returned empty etag")
+                }
+
+                // Wrong etag: expect Aborted
+                _, err = srv.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
+                    Name: created.Name, Etag: "wrong-etag",
+                })
+                if err == nil {
+                    t.Fatal("DeleteSecret wrong etag: expected error, got nil")
+                }
+                st, _ := status.FromError(err)
+                if st.Code() != codes.Aborted {
+                    t.Errorf("DeleteSecret wrong etag: got code %v, want Aborted", st.Code())
+                }
+
+                // Correct etag: expect success
+                _, err = srv.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
+                    Name: created.Name, Etag: correctEtag,
+                })
+                if err != nil {
+                    t.Fatalf("DeleteSecret correct etag: unexpected error %v", err)
+                }
+            }
+            ```
+
+            ### TestServer_UpdateSecret_EtagValidation
+            ```go
+            func TestServer_UpdateSecret_EtagValidation(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                created, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "etag-upd",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+
+                // Wrong etag: expect Aborted
+                _, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+                    Secret: &secretmanagerpb.Secret{Name: created.Name, Etag: "wrong"},
+                    UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"labels"}},
+                })
+                if err == nil {
+                    t.Fatal("UpdateSecret wrong etag: expected error, got nil")
+                }
+                st, _ := status.FromError(err)
+                if st.Code() != codes.Aborted {
+                    t.Errorf("UpdateSecret wrong etag: got code %v, want Aborted", st.Code())
+                }
+
+                // Correct etag: expect success
+                _, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+                    Secret: &secretmanagerpb.Secret{
+                        Name: created.Name, Etag: created.GetEtag(),
+                        Labels: map[string]string{"updated": "true"},
+                    },
+                    UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"labels"}},
+                })
+                if err != nil {
+                    t.Fatalf("UpdateSecret correct etag: unexpected error %v", err)
+                }
+            }
+            ```
+
+            ### TestServer_VersionEtagValidation
+            ```go
+            func TestServer_VersionEtagValidation(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                _, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "etag-ver",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/etag-ver"
+                sv, err := srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+                    Parent:  parent,
+                    Payload: &secretmanagerpb.SecretPayload{Data: []byte("data")},
+                })
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+                correctEtag := sv.GetEtag()
+                versionName := sv.Name
+
+                // DisableSecretVersion with wrong etag: expect Aborted
+                _, err = srv.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+                    Name: versionName, Etag: "bad-etag",
+                })
+                if err == nil {
+                    t.Fatal("DisableSecretVersion wrong etag: expected error, got nil")
+                }
+                st, _ := status.FromError(err)
+                if st.Code() != codes.Aborted {
+                    t.Errorf("DisableSecretVersion wrong etag: got %v, want Aborted", st.Code())
+                }
+
+                // DisableSecretVersion with correct etag: expect success
+                disabled, err := srv.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+                    Name: versionName, Etag: correctEtag,
+                })
+                if err != nil {
+                    t.Fatalf("DisableSecretVersion correct etag: %v", err)
+                }
+
+                // Re-enable then destroy with correct etag
+                _, err = srv.EnableSecretVersion(ctx, &secretmanagerpb.EnableSecretVersionRequest{
+                    Name: versionName, Etag: disabled.GetEtag(),
+                })
+                if err != nil {
+                    t.Fatalf("EnableSecretVersion: %v", err)
+                }
+            }
+            ```
+
+            ### TestServer_IAMPolicy
+            ```go
+            func TestServer_IAMPolicy(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                resource := "projects/p/secrets/iam-test"
+                _, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "iam-test",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+
+                // GetIamPolicy on new secret: should return empty policy, not Unimplemented
+                policy, err := srv.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: resource})
+                if err != nil {
+                    t.Fatalf("GetIamPolicy: unexpected error %v", err)
+                }
+                if policy == nil {
+                    t.Fatal("GetIamPolicy: returned nil policy")
+                }
+
+                // SetIamPolicy: store a binding
+                setResp, err := srv.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{
+                    Resource: resource,
+                    Policy: &iampb.Policy{
+                        Bindings: []*iampb.Binding{
+                            {Role: "roles/secretmanager.viewer", Members: []string{"user:test@example.com"}},
+                        },
+                    },
+                })
+                if err != nil {
+                    t.Fatalf("SetIamPolicy: unexpected error %v", err)
+                }
+                if len(setResp.GetBindings()) != 1 {
+                    t.Errorf("SetIamPolicy: got %d bindings, want 1", len(setResp.GetBindings()))
+                }
+
+                // GetIamPolicy should now return the stored binding
+                getResp, err := srv.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: resource})
+                if err != nil {
+                    t.Fatalf("GetIamPolicy after set: %v", err)
+                }
+                if len(getResp.GetBindings()) != 1 {
+                    t.Errorf("GetIamPolicy after set: got %d bindings, want 1", len(getResp.GetBindings()))
+                }
+
+                // TestIamPermissions: grant all when IAM is disabled
+                permResp, err := srv.TestIamPermissions(ctx, &iampb.TestIamPermissionsRequest{
+                    Resource:    resource,
+                    Permissions: []string{"secretmanager.versions.access", "secretmanager.secrets.get"},
+                })
+                if err != nil {
+                    t.Fatalf("TestIamPermissions: unexpected error %v", err)
+                }
+                if len(permResp.GetPermissions()) != 2 {
+                    t.Errorf("TestIamPermissions: got %d permissions, want 2", len(permResp.GetPermissions()))
+                }
+            }
+            ```
+
+            ### TestServer_UpdateSecret_VersionAliases
+            ```go
+            func TestServer_UpdateSecret_VersionAliases(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                _, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                    Parent: "projects/p", SecretId: "alias-test",
+                    Secret: &secretmanagerpb.Secret{},
+                })
+                if err != nil {
+                    t.Fatalf("CreateSecret: %v", err)
+                }
+                parent := "projects/p/secrets/alias-test"
+                _, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+                    Parent:  parent,
+                    Payload: &secretmanagerpb.SecretPayload{Data: []byte("version1data")},
+                })
+                if err != nil {
+                    t.Fatalf("AddSecretVersion: %v", err)
+                }
+
+                // Set version alias via UpdateSecret
+                _, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+                    Secret: &secretmanagerpb.Secret{
+                        Name:           parent,
+                        VersionAliases: map[string]int32{"myalias": 1},
+                    },
+                    UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"version_aliases"}},
+                })
+                if err != nil {
+                    t.Fatalf("UpdateSecret version_aliases: %v", err)
+                }
+
+                // Resolve alias via GetSecretVersion
+                sv, err := srv.GetSecretVersion(ctx, &secretmanagerpb.GetSecretVersionRequest{
+                    Name: parent + "/versions/myalias",
+                })
+                if err != nil {
+                    t.Fatalf("GetSecretVersion(myalias): %v", err)
+                }
+                if sv.GetName() != parent+"/versions/1" {
+                    t.Errorf("GetSecretVersion alias: name = %q, want %q", sv.GetName(), parent+"/versions/1")
+                }
+            }
+            ```
+
+            ### TestServer_ListSecrets_Filter
+            ```go
+            func TestServer_ListSecrets_Filter(t *testing.T) {
+                ctx := context.Background()
+                srv, err := NewServer()
+                if err != nil {
+                    t.Fatalf("NewServer: %v", err)
+                }
+                for _, id := range []string{"alpha-1", "alpha-2", "beta-1"} {
+                    _, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+                        Parent: "projects/p", SecretId: id,
+                        Secret: &secretmanagerpb.Secret{},
+                    })
+                    if err != nil {
+                        t.Fatalf("CreateSecret(%s): %v", id, err)
+                    }
+                }
+
+                resp, err := srv.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{
+                    Parent: "projects/p", Filter: "name:alpha",
+                })
+                if err != nil {
+                    t.Fatalf("ListSecrets(filter=name:alpha): %v", err)
+                }
+                if len(resp.Secrets) != 2 {
+                    t.Errorf("ListSecrets filter: got %d secrets, want 2", len(resp.Secrets))
+                }
+            }
+            ```
+
+            ## Verification gate
+            ```
+            go build ./internal/server/...
+            go vet ./internal/server/...
+            go test ./internal/server/... -v -run "TestStorage_Etag|TestStorage_Destroy|TestStorage_DataCrc|TestStorage_VersionAlias|TestStorage_ListSecrets|TestStorage_Total|TestStorage_VersionEtag|TestServer_Add|TestServer_Delete|TestServer_Update|TestServer_Version|TestServer_IAM|TestServer_List"
+            ```
+
+            ## Constraints
+            - Do NOT modify existing test functions.
+            - Storage.ListSecrets returns 4 values: (secrets, token, totalSize, error).
+            - Storage.ListSecretVersions returns 4 values: (versions, token, totalSize, error).
+            - Storage.UpdateSecret takes 5 parameters: (ctx, name, labels, annotations, versionAliases).
+            - fieldmaskpb is already imported in server_test.go — do not re-import.
+            - iampb import: "cloud.google.com/go/iam/apiv1/iampb".
+            - wrapperspb: "google.golang.org/protobuf/types/known/wrapperspb".
+            - Use fmt.Sprintf for format strings in test names; import "fmt" if not already present.
+          files:
+            - internal/server/storage_test.go
+            - internal/server/server_test.go
+          dependencies:
+            - A
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |-
+            storage_coverage_test.go directly calls storage.ListSecrets and storage.UpdateSecret
+            with the old signatures. Agent A owns this file and must update all call sites.
+            If any are missed the build will fail at merge time.
+          likelihood: low
+          impact: high
+          mitigation: |-
+            Agent A's task explicitly enumerates the call sites and instructs grep-based
+            discovery. Agent A must grep for storage.ListSecrets, storage.UpdateSecret, and
+            storage.ListSecretVersions to find all occurrences and update them all.
+        - scenario: |-
+            Interface contract mismatch: Agent B calls storage.UpdateSecret and
+            storage.ListSecrets / storage.ListSecretVersions. If Agent A's actual
+            signatures differ from the spec, server.go will not compile.
+          likelihood: medium
+          impact: high
+          mitigation: |-
+            Interface contracts are precisely specified in this IMPL doc. Both agents must
+            implement against these exact signatures. If a compile error occurs at merge,
+            fix server.go call sites to match storage.go's actual signatures.
+        - scenario: |-
+            StoredSecret.VersionAliases stores int64 but proto field is map[string]int32.
+            Version numbers grow slowly; in practice they will never exceed int32 max (2^31-1).
+            The explicit cast in buildSecretProto is safe.
+          likelihood: low
+          impact: low
+          mitigation: Document the int64-to-int32 cast in a comment in buildSecretProto.
+        - scenario: |-
+            crc32c error code: the conformance report says INVALID_ARGUMENT, but the
+            feature spec says DATA_LOSS. Agent B uses DATA_LOSS per the feature spec.
+          likelihood: low
+          impact: low
+          mitigation: |-
+            Use DATA_LOSS as specified. If end-to-end conformance tests later reveal the
+            real API returns INVALID_ARGUMENT, a follow-up fix to change the error code
+            is trivial. DATA_LOSS is the safer choice for data integrity errors.
+        - scenario: |-
+            Agent C's tests reference iampb.Binding in server_test.go. If the iampb import
+            is not added correctly, tests will fail to compile.
+          likelihood: low
+          impact: low
+          mitigation: |-
+            server_test.go already imports iampb (confirmed at line 11 of the file).
+            Agent C should not re-import; just use the existing import.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: 'All 6 checks pass. Warning resolved: IAM RPCs are part of SecretManagerService proto (not a separate IAMPolicyServer), so implementing them on *Server is sufficient — no register.go changes needed.'
+    reviewed_at: "2026-04-03T19:10:30Z"
+    issue_count: 0
+state: SCOUT_PENDING
+injection_method: hook
