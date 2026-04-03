@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"testing"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -473,5 +474,239 @@ func TestStorage_ClearAndCount(t *testing.T) {
 
 	if count := storage.SecretCount(); count != 0 {
 		t.Errorf("SecretCount() after Clear() = %d, want 0", count)
+	}
+}
+
+func TestStorage_EtagGeneration(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	secret, err := s.CreateSecret(ctx, "projects/p", "s1", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	if secret.GetEtag() == "" {
+		t.Error("CreateSecret: etag should be non-empty")
+	}
+
+	updated, err := s.UpdateSecret(ctx, secret.Name, map[string]string{"k": "v"}, nil, nil)
+	if err != nil {
+		t.Fatalf("UpdateSecret: %v", err)
+	}
+	if updated.GetEtag() == "" {
+		t.Error("UpdateSecret: etag should be non-empty")
+	}
+	// etag changes after mutation
+	if updated.GetEtag() == secret.GetEtag() {
+		t.Errorf("UpdateSecret: etag should change after mutation, got same etag %q", secret.GetEtag())
+	}
+}
+
+func TestStorage_DestroyTime(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	_, err := s.CreateSecret(ctx, "projects/p", "s-destroy", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/s-destroy"
+	_, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("data")})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+	versionName := parent + "/versions/1"
+
+	destroyed, err := s.DestroySecretVersion(ctx, versionName)
+	if err != nil {
+		t.Fatalf("DestroySecretVersion: %v", err)
+	}
+	if destroyed.GetDestroyTime() == nil {
+		t.Error("DestroySecretVersion: destroy_time should be set")
+	}
+
+	// Idempotent destroy should also return destroy_time
+	destroyed2, err := s.DestroySecretVersion(ctx, versionName)
+	if err != nil {
+		t.Fatalf("Idempotent DestroySecretVersion: %v", err)
+	}
+	if destroyed2.GetDestroyTime() == nil {
+		t.Error("Idempotent DestroySecretVersion: destroy_time should be set")
+	}
+}
+
+func TestStorage_DataCrc32C(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	_, err := s.CreateSecret(ctx, "projects/p", "s-crc", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/s-crc"
+	data := []byte("hello world")
+	table := crc32.MakeTable(crc32.Castagnoli)
+	checksum := int64(crc32.Checksum(data, table))
+
+	_, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{
+		Data:       data,
+		DataCrc32C: &checksum,
+	})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+
+	resp, err := s.AccessSecretVersion(ctx, parent+"/versions/1")
+	if err != nil {
+		t.Fatalf("AccessSecretVersion: %v", err)
+	}
+	if resp.GetPayload().DataCrc32C == nil {
+		t.Fatal("AccessSecretVersion: data_crc32c should be non-nil")
+	}
+	if resp.GetPayload().GetDataCrc32C() != checksum {
+		t.Errorf("AccessSecretVersion: data_crc32c = %d, want %d",
+			resp.GetPayload().GetDataCrc32C(), checksum)
+	}
+}
+
+func TestStorage_VersionAliases(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	_, err := s.CreateSecret(ctx, "projects/p", "s-alias", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/s-alias"
+	_, err = s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("v1data")})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+
+	// Set version_aliases via UpdateSecret
+	_, err = s.UpdateSecret(ctx, parent, nil, nil, map[string]int64{"myalias": 1})
+	if err != nil {
+		t.Fatalf("UpdateSecret with aliases: %v", err)
+	}
+
+	// GetSecretVersion via alias
+	sv, err := s.GetSecretVersion(ctx, parent+"/versions/myalias")
+	if err != nil {
+		t.Fatalf("GetSecretVersion(myalias): %v", err)
+	}
+	if sv.GetName() != parent+"/versions/1" {
+		t.Errorf("GetSecretVersion alias: name = %q, want %q", sv.GetName(), parent+"/versions/1")
+	}
+
+	// AccessSecretVersion via alias
+	resp, err := s.AccessSecretVersion(ctx, parent+"/versions/myalias")
+	if err != nil {
+		t.Fatalf("AccessSecretVersion(myalias): %v", err)
+	}
+	if string(resp.GetPayload().GetData()) != "v1data" {
+		t.Errorf("AccessSecretVersion alias: data = %q, want v1data", resp.GetPayload().GetData())
+	}
+}
+
+func TestStorage_ListSecretsFilter(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	for _, id := range []string{"foo-1", "foo-2", "bar-1"} {
+		labels := map[string]string{}
+		if id == "foo-1" {
+			labels["env"] = "prod"
+		}
+		_, err := s.CreateSecret(ctx, "projects/p", id, &secretmanagerpb.Secret{Labels: labels})
+		if err != nil {
+			t.Fatalf("CreateSecret(%s): %v", id, err)
+		}
+	}
+
+	tests := []struct {
+		filter string
+		want   int
+	}{
+		{"name:foo", 2},
+		{"name:bar", 1},
+		{"name:baz", 0},
+		{"labels.env=prod", 1},
+		{"", 3},
+	}
+	for _, tt := range tests {
+		secrets, _, _, err := s.ListSecrets(ctx, "projects/p", 100, "", tt.filter)
+		if err != nil {
+			t.Fatalf("ListSecrets(filter=%q): %v", tt.filter, err)
+		}
+		if len(secrets) != tt.want {
+			t.Errorf("ListSecrets(filter=%q): got %d secrets, want %d", tt.filter, len(secrets), tt.want)
+		}
+	}
+}
+
+func TestStorage_TotalSize(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		_, err := s.CreateSecret(ctx, "projects/p", fmt.Sprintf("secret-%d", i), &secretmanagerpb.Secret{})
+		if err != nil {
+			t.Fatalf("CreateSecret: %v", err)
+		}
+	}
+
+	// Page size 2, should have total_size = 5
+	_, _, total, err := s.ListSecrets(ctx, "projects/p", 2, "", "")
+	if err != nil {
+		t.Fatalf("ListSecrets: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("ListSecrets TotalSize = %d, want 5", total)
+	}
+
+	// ListSecretVersions total_size
+	parent := "projects/p/secrets/secret-0"
+	for i := 0; i < 4; i++ {
+		_, err := s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("x")})
+		if err != nil {
+			t.Fatalf("AddSecretVersion: %v", err)
+		}
+	}
+	_, _, vTotal, err := s.ListSecretVersions(ctx, parent, 2, "", "")
+	if err != nil {
+		t.Fatalf("ListSecretVersions: %v", err)
+	}
+	if vTotal != 4 {
+		t.Errorf("ListSecretVersions TotalSize = %d, want 4", vTotal)
+	}
+}
+
+func TestStorage_VersionEtag(t *testing.T) {
+	s := NewStorage()
+	ctx := context.Background()
+
+	_, err := s.CreateSecret(ctx, "projects/p", "s-vetag", &secretmanagerpb.Secret{})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/s-vetag"
+	sv, err := s.AddSecretVersion(ctx, parent, &secretmanagerpb.SecretPayload{Data: []byte("data")})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+	if sv.GetEtag() == "" {
+		t.Error("AddSecretVersion: etag should be non-empty")
+	}
+	origEtag := sv.GetEtag()
+
+	disabled, err := s.DisableSecretVersion(ctx, parent+"/versions/1")
+	if err != nil {
+		t.Fatalf("DisableSecretVersion: %v", err)
+	}
+	if disabled.GetEtag() == "" {
+		t.Error("DisableSecretVersion: etag should be non-empty")
+	}
+	if disabled.GetEtag() == origEtag {
+		t.Errorf("DisableSecretVersion: etag should change after state mutation, still %q", origEtag)
 	}
 }

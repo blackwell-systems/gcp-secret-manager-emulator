@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"testing"
-
+	"hash/crc32"
 	"net"
 	"strings"
+	"testing"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -1409,6 +1409,321 @@ func TestPermissionDenied_ErrorMessageFormat(t *testing.T) {
 	}
 	if !strings.Contains(msg, "projects/test-project/secrets/my-secret") {
 		t.Errorf("error message %q does not contain resource", msg)
+	}
+}
+
+func TestServer_AddSecretVersion_Crc32cValidation(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	_, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "crc-test",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+
+	data := []byte("payload data")
+	table := crc32.MakeTable(crc32.Castagnoli)
+	correct := int64(crc32.Checksum(data, table))
+
+	// Correct checksum: expect success
+	_, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent: "projects/p/secrets/crc-test",
+		Payload: &secretmanagerpb.SecretPayload{
+			Data:       data,
+			DataCrc32C: &correct,
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddSecretVersion correct crc32c: unexpected error %v", err)
+	}
+
+	// Wrong checksum: expect DataLoss
+	wrongCrc := correct + 1
+	_, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent: "projects/p/secrets/crc-test",
+		Payload: &secretmanagerpb.SecretPayload{
+			Data:       data,
+			DataCrc32C: &wrongCrc,
+		},
+	})
+	if err == nil {
+		t.Fatal("AddSecretVersion wrong crc32c: expected error, got nil")
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.DataLoss {
+		t.Errorf("AddSecretVersion wrong crc32c: got code %v, want DataLoss", st.Code())
+	}
+}
+
+func TestServer_DeleteSecret_EtagValidation(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	created, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "etag-del",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	correctEtag := created.GetEtag()
+	if correctEtag == "" {
+		t.Fatal("CreateSecret returned empty etag")
+	}
+
+	// Wrong etag: expect Aborted
+	_, err = srv.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
+		Name: created.Name, Etag: "wrong-etag",
+	})
+	if err == nil {
+		t.Fatal("DeleteSecret wrong etag: expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Aborted {
+		t.Errorf("DeleteSecret wrong etag: got code %v, want Aborted", st.Code())
+	}
+
+	// Correct etag: expect success
+	_, err = srv.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{
+		Name: created.Name, Etag: correctEtag,
+	})
+	if err != nil {
+		t.Fatalf("DeleteSecret correct etag: unexpected error %v", err)
+	}
+}
+
+func TestServer_UpdateSecret_EtagValidation(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	created, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "etag-upd",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+
+	// Wrong etag: expect Aborted
+	_, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+		Secret: &secretmanagerpb.Secret{Name: created.Name, Etag: "wrong"},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"labels"}},
+	})
+	if err == nil {
+		t.Fatal("UpdateSecret wrong etag: expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Aborted {
+		t.Errorf("UpdateSecret wrong etag: got code %v, want Aborted", st.Code())
+	}
+
+	// Correct etag: expect success
+	_, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+		Secret: &secretmanagerpb.Secret{
+			Name: created.Name, Etag: created.GetEtag(),
+			Labels: map[string]string{"updated": "true"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"labels"}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecret correct etag: unexpected error %v", err)
+	}
+}
+
+func TestServer_VersionEtagValidation(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	_, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "etag-ver",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/etag-ver"
+	sv, err := srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent:  parent,
+		Payload: &secretmanagerpb.SecretPayload{Data: []byte("data")},
+	})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+	correctEtag := sv.GetEtag()
+	versionName := sv.Name
+
+	// DisableSecretVersion with wrong etag: expect Aborted
+	_, err = srv.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+		Name: versionName, Etag: "bad-etag",
+	})
+	if err == nil {
+		t.Fatal("DisableSecretVersion wrong etag: expected error, got nil")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Aborted {
+		t.Errorf("DisableSecretVersion wrong etag: got %v, want Aborted", st.Code())
+	}
+
+	// DisableSecretVersion with correct etag: expect success
+	disabled, err := srv.DisableSecretVersion(ctx, &secretmanagerpb.DisableSecretVersionRequest{
+		Name: versionName, Etag: correctEtag,
+	})
+	if err != nil {
+		t.Fatalf("DisableSecretVersion correct etag: %v", err)
+	}
+
+	// Re-enable then destroy with correct etag
+	_, err = srv.EnableSecretVersion(ctx, &secretmanagerpb.EnableSecretVersionRequest{
+		Name: versionName, Etag: disabled.GetEtag(),
+	})
+	if err != nil {
+		t.Fatalf("EnableSecretVersion: %v", err)
+	}
+}
+
+func TestServer_IAMPolicy(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	resource := "projects/p/secrets/iam-test"
+	_, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "iam-test",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+
+	// GetIamPolicy on new secret: should return empty policy, not Unimplemented
+	policy, err := srv.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: resource})
+	if err != nil {
+		t.Fatalf("GetIamPolicy: unexpected error %v", err)
+	}
+	if policy == nil {
+		t.Fatal("GetIamPolicy: returned nil policy")
+	}
+
+	// SetIamPolicy: store a binding
+	setResp, err := srv.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{
+		Resource: resource,
+		Policy: &iampb.Policy{
+			Bindings: []*iampb.Binding{
+				{Role: "roles/secretmanager.viewer", Members: []string{"user:test@example.com"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetIamPolicy: unexpected error %v", err)
+	}
+	if len(setResp.GetBindings()) != 1 {
+		t.Errorf("SetIamPolicy: got %d bindings, want 1", len(setResp.GetBindings()))
+	}
+
+	// GetIamPolicy should now return the stored binding
+	getResp, err := srv.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: resource})
+	if err != nil {
+		t.Fatalf("GetIamPolicy after set: %v", err)
+	}
+	if len(getResp.GetBindings()) != 1 {
+		t.Errorf("GetIamPolicy after set: got %d bindings, want 1", len(getResp.GetBindings()))
+	}
+
+	// TestIamPermissions: grant all when IAM is disabled
+	permResp, err := srv.TestIamPermissions(ctx, &iampb.TestIamPermissionsRequest{
+		Resource:    resource,
+		Permissions: []string{"secretmanager.versions.access", "secretmanager.secrets.get"},
+	})
+	if err != nil {
+		t.Fatalf("TestIamPermissions: unexpected error %v", err)
+	}
+	if len(permResp.GetPermissions()) != 2 {
+		t.Errorf("TestIamPermissions: got %d permissions, want 2", len(permResp.GetPermissions()))
+	}
+}
+
+func TestServer_UpdateSecret_VersionAliases(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	_, err = srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent: "projects/p", SecretId: "alias-test",
+		Secret: &secretmanagerpb.Secret{},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecret: %v", err)
+	}
+	parent := "projects/p/secrets/alias-test"
+	_, err = srv.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent:  parent,
+		Payload: &secretmanagerpb.SecretPayload{Data: []byte("version1data")},
+	})
+	if err != nil {
+		t.Fatalf("AddSecretVersion: %v", err)
+	}
+
+	// Set version alias via UpdateSecret
+	_, err = srv.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
+		Secret: &secretmanagerpb.Secret{
+			Name:           parent,
+			VersionAliases: map[string]int64{"myalias": 1},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"version_aliases"}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecret version_aliases: %v", err)
+	}
+
+	// Resolve alias via GetSecretVersion
+	sv, err := srv.GetSecretVersion(ctx, &secretmanagerpb.GetSecretVersionRequest{
+		Name: parent + "/versions/myalias",
+	})
+	if err != nil {
+		t.Fatalf("GetSecretVersion(myalias): %v", err)
+	}
+	if sv.GetName() != parent+"/versions/1" {
+		t.Errorf("GetSecretVersion alias: name = %q, want %q", sv.GetName(), parent+"/versions/1")
+	}
+}
+
+func TestServer_ListSecrets_Filter(t *testing.T) {
+	ctx := context.Background()
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	for _, id := range []string{"alpha-1", "alpha-2", "beta-1"} {
+		_, err := srv.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+			Parent: "projects/p", SecretId: id,
+			Secret: &secretmanagerpb.Secret{},
+		})
+		if err != nil {
+			t.Fatalf("CreateSecret(%s): %v", id, err)
+		}
+	}
+
+	resp, err := srv.ListSecrets(ctx, &secretmanagerpb.ListSecretsRequest{
+		Parent: "projects/p", Filter: "name:alpha",
+	})
+	if err != nil {
+		t.Fatalf("ListSecrets(filter=name:alpha): %v", err)
+	}
+	if len(resp.Secrets) != 2 {
+		t.Errorf("ListSecrets filter: got %d secrets, want 2", len(resp.Secrets))
 	}
 }
 
