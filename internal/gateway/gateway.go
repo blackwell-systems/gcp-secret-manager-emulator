@@ -72,6 +72,12 @@ func grpcStatusToHTTP(err error) int {
 	}
 }
 
+// Handler returns the HTTP handler for this gateway, suitable for mounting
+// into a parent mux (e.g. the unified gcp-emulator gateway).
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(s.handleRequest)
+}
+
 // Start starts the REST gateway server on the specified address
 func (s *Server) Start(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
