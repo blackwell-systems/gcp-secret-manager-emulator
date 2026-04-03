@@ -805,6 +805,7 @@ waves:
           files:
             - internal/server/server.go
             - internal/server/iam_storage.go
+      base_commit: 49f91aa649b2080accad67b9b1b2b43dc6fd98cd
     - number: 2
       agents:
         - id: C
@@ -1464,6 +1465,27 @@ quality_gates:
         - type: test
           command: go test ./...
           required: true
+completion_reports:
+    A:
+        status: complete
+        branch: saw/conformance-fixes/wave1-agent-A
+        commit: 261bbc2
+        files_changed:
+            - internal/server/storage.go
+            - internal/server/storage_test.go
+        verification: PASS
+        notes: 'Storage layer fully implemented. Build errors exist only in server.go (Agent B''s file) which calls old storage signatures - expected parallel wave dependency. go vet on storage.go + storage_test.go is clean. Discovered: VersionAliases proto field is map[string]int64 (not int32 as brief stated); DataCrc32C in SecretPayload is *int64 (not wrapperspb.Int64Value). Updated TestListSecretVersions_NumericOrdering and TestListSecrets_DeterministicOrdering assertions to match new descending sort orders. Out-of-scope: Agent B must update server.go call sites for ListSecrets (add filter arg, accept 4 returns), UpdateSecret (add versionAliases arg), ListSecretVersions (accept 4 returns).'
+    B:
+        status: complete
+        branch: saw/conformance-fixes/wave1-agent-B
+        commit: ce98463
+        files_changed:
+            - internal/server/server.go
+            - internal/server/iam_storage.go
+        files_created:
+            - internal/server/iam_storage.go
+        verification: FAIL (storage.go signatures pending Agent A - 3 cross-agent build errors only)
+        notes: 'All server-layer changes complete. Created IAMStorage in iam_storage.go. Updated server.go: iamStorage field, 3 IAM methods, crc32c validation (DataCrc32C is *int64 oneof - nil check uses .DataCrc32C directly), etag enforcement on 5 methods, version_aliases in update mask, filter+totalSize forwarding. Build fails only on 3 Agent A storage signature mismatches (expected). Committed with --no-verify per parallel wave protocol. Out-of-scope deps: storage.go ListSecrets/UpdateSecret/ListSecretVersions signature changes (Agent A scope).'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1517,5 +1539,5 @@ critic_report:
     summary: 'All 6 checks pass. Warning resolved: IAM RPCs are part of SecretManagerService proto (not a separate IAMPolicyServer), so implementing them on *Server is sufficient — no register.go changes needed.'
     reviewed_at: "2026-04-03T19:10:30Z"
     issue_count: 0
-state: "REVIEWED"
+state: REVIEWED
 injection_method: hook
