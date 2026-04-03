@@ -8,7 +8,6 @@ package gcpemulator
 import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 
 	"github.com/blackwell-systems/gcp-secret-manager-emulator/internal/server"
 )
@@ -28,6 +27,5 @@ func Register(grpcSrv *grpc.Server, opts ...Option) error {
 		return err
 	}
 	secretmanagerpb.RegisterSecretManagerServiceServer(grpcSrv, srv)
-	reflection.Register(grpcSrv)
 	return nil
 }
