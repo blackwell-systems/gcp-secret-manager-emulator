@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	cloud.google.com/go/iam v1.5.3
 	cloud.google.com/go/secretmanager v1.16.0
-	github.com/blackwell-systems/gcp-emulator-auth v0.4.0
+	github.com/blackwell-systems/gcp-emulator-auth v0.4.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0
 	google.golang.org/api v0.257.0
 	google.golang.org/grpc v1.79.1
