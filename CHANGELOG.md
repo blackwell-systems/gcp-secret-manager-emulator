@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-04-06
+
+### Fixed
+
+- Pin Dockerfile to golang:1.24-alpine for explicit version pinning
+
 ## [1.7.1] - 2026-04-05
 
 ### Changed
