@@ -1359,7 +1359,7 @@ func startDenyAllIAMServer(t *testing.T) string {
 func TestPermissionDenied_ErrorMessageFormat(t *testing.T) {
 	addr := startDenyAllIAMServer(t)
 
-	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict, "test")
+	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -1732,7 +1732,7 @@ func TestServer_ListSecrets_Filter(t *testing.T) {
 func TestPermissionDenied_NoPrincipal(t *testing.T) {
 	addr := startDenyAllIAMServer(t)
 
-	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict, "test")
+	iamClient, err := emulatorauth.NewClient(addr, emulatorauth.AuthModeStrict)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
