@@ -49,7 +49,7 @@ curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/my-secret:add
 curl "http://localhost:8080/v1/projects/my-project/secrets/my-secret/versions/1:access"
 ```
 
-**In production:** Used by enterprise teams for hermetic CI/CD testing
+**Used in production CI by [Flipt](https://github.com/flipt-io/flipt)** (4.8K stars, enterprise feature management) and other teams for hermetic integration testing
 
 ---
 
