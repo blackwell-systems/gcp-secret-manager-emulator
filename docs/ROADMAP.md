@@ -55,7 +55,7 @@ docker run -p 9090:9090 gcp-secret-manager-emulator:grpc
 docker run -p 8080:8080 gcp-secret-manager-emulator:rest
 
 # Both protocols
-docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
+docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator-dual:latest
 ```
 
 ## v1.0.0 - Released 2026-01-26 ✓

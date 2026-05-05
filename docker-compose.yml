@@ -13,7 +13,7 @@ services:
       retries: 5
 
   secret-manager-emulator:
-    image: gcp-secret-manager-emulator:dual
+    image: gcp-secret-manager-emulator-dual:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -32,7 +32,7 @@ services:
         condition: service_healthy
 
   secret-manager-strict:
-    image: gcp-secret-manager-emulator:dual
+    image: gcp-secret-manager-emulator-dual:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -53,7 +53,7 @@ services:
       - ci
 
   secret-manager-legacy:
-    image: gcp-secret-manager-emulator:dual
+    image: gcp-secret-manager-emulator-dual:latest
     build:
       context: .
       dockerfile: Dockerfile

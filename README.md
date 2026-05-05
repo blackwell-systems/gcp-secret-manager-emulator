@@ -22,7 +22,7 @@ Get the emulator running in under 60 seconds. No GCP account or credentials need
 
 **Option A: Docker (recommended -- no Go required)**
 ```bash
-docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator-dual:latest
 ```
 
 **Option B: Go install**
@@ -67,18 +67,14 @@ Pre-flight enforcement catches permission bugs in development/CI, not production
 
 ### The Hermetic Seal
 
-Before Blackwell, **"GCP Hermetic Testing" was essentially impossible.**
-
-Google's official emulators have a critical flaw: they ignore authorization. Your tests pass locally because the emulator allows everything, then fail in production when IAM denies the request.
+GCP hermetic testing previously required either a live GCP project or vendor-specific mocks. Google's official emulators ignore authorization entirely — your tests pass locally because the emulator allows everything, then fail in production when IAM denies the request.
 
 **The two bad options:**
 
 1. **Fake Auth** - Emulator ignores permissions (fast, but catches zero IAM bugs)
 2. **Staging Leak** - Call real GCP IAM API (hermetic seal broken, tests become flaky)
 
-**Blackwell closes the hermetic seal:**
-
-With IAM enforcement enabled, your tests:
+**With IAM enforcement enabled**, your tests:
 - **Fail for the same authorization reasons production would** (`PermissionDenied` errors)
 - **Run completely offline** (no network, no GCP credentials)
 - **Execute deterministically** (0ms IAM propagation delay vs 1-60s in real GCP)
@@ -344,7 +340,7 @@ docker run -p 8080:8080 gcp-secret-manager-emulator:rest
 
 **Dual protocol (both gRPC + REST):**
 ```bash
-docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
+docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator-dual:latest
 # gRPC on :9090, REST on :8080
 ```
 
@@ -354,7 +350,7 @@ docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator:dual
 ```yaml
 services:
   gcp-emulator:
-    image: gcp-secret-manager-emulator:dual
+    image: gcp-secret-manager-emulator-dual:latest
     ports:
       - 9090:9090
       - 8080:8080
@@ -364,7 +360,7 @@ services:
 ```yaml
 services:
   gcp-emulator:
-    image: gcp-secret-manager-emulator:dual
+    image: gcp-secret-manager-emulator-dual:latest
     ports:
       - "9090:9090"  # gRPC
       - "8080:8080"  # REST
