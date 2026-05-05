@@ -1,6 +1,6 @@
 services:
   secret-manager:
-    image: ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+    image: ghcr.io/blackwell-systems/gcp-secret-manager-emulator-dual:latest
     ports:
       - "9090:9090"
       - "8080:8080"

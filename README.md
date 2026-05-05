@@ -22,7 +22,7 @@ Get the emulator running in under 60 seconds. No GCP account or credentials need
 
 **Option A: Docker (recommended -- no Go required)**
 ```bash
-docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator-dual:latest
 ```
 
 **Option B: Go install**

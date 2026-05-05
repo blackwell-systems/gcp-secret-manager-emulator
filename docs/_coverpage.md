@@ -17,7 +17,7 @@ go install .../cmd/server-rest@latest && server-rest
 go install .../cmd/server-dual@latest && server-dual
 
 # Docker
-docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator:dual
+docker run -p 9090:9090 -p 8080:8080 ghcr.io/blackwell-systems/gcp-secret-manager-emulator-dual:latest
 ```
 
 **Quick Test Examples:**
