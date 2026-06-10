@@ -18,9 +18,10 @@ import (
 // behaves exactly as before: everything is kept in memory and lost on restart.
 //
 // When enabled via GCP_MOCK_PERSIST, the full set of secrets is snapshotted to a
-// single JSON file. State is loaded on startup and written back atomically after
-// every mutation by a single background goroutine, so request latency is never
-// blocked by disk I/O and concurrent writes cannot tear the file.
+// single JSON file. State is loaded on startup and written back atomically by a
+// single background goroutine, so request latency is never blocked by disk I/O
+// and concurrent writes cannot tear the file. Writes are debounced so bursts of
+// mutations coalesce into one snapshot; a final flush runs on graceful shutdown.
 //
 // Only secrets are persisted. IAM policies (IAMStorage) are intentionally out of
 // scope, consistent with the project roadmap (per-resource policy storage is
@@ -44,6 +45,10 @@ const (
 	// ever changes in a backward-incompatible way.
 	snapshotSchemaVersion = 1
 )
+
+// defaultDebounce is the trailing window the flusher waits after the last
+// mutation before writing, so bursts coalesce into a single snapshot.
+const defaultDebounce = 100 * time.Millisecond
 
 // loadPersistConfig reads the persistence configuration from the environment and
 // returns the snapshot file path. An empty path means persistence is disabled.
@@ -252,6 +257,8 @@ func (s *Storage) loadFromFile(path string) error {
 // os.Rename replaces the destination atomically on POSIX and on Windows
 // (modern Go uses MoveFileEx with MOVEFILE_REPLACE_EXISTING).
 func (s *Storage) flush() error {
+	s.flushCount.Add(1)
+
 	s.mu.RLock()
 	snap, err := s.buildSnapshot()
 	s.mu.RUnlock()
@@ -315,18 +322,34 @@ func (s *Storage) markDirty() {
 	}
 }
 
-// runFlusher is the sole disk writer. It coalesces bursts (the dirty channel has
-// capacity 1) and performs a final flush on shutdown.
+// runFlusher is the sole disk writer. A trailing debounce coalesces bursts of
+// mutations into a single write: each dirty signal (re)arms a timer, and a flush
+// happens once mutations have been quiet for s.debounce. This batches rapid
+// sequences (e.g. bulk imports) instead of writing once per mutation.
+//
+// A final synchronous flush runs on shutdown, so the latest state is always
+// persisted on graceful exit (the docker compose down/stop path). The only
+// durability gap is a hard kill (SIGKILL) within the debounce window, which is
+// acceptable for a testing emulator.
+//
+// Relies on Go 1.23+ timer semantics, where Timer.Reset has no stale-tick hazard.
 func (s *Storage) runFlusher() {
+	timer := time.NewTimer(s.debounce)
+	if !timer.Stop() {
+		<-timer.C
+	}
 	for {
 		select {
 		case <-s.quit:
+			timer.Stop()
 			if err := s.flush(); err != nil {
 				logPersistError(err)
 			}
 			close(s.flushDone)
 			return
 		case <-s.dirty:
+			timer.Reset(s.debounce) // (re)arm the trailing window
+		case <-timer.C:
 			if err := s.flush(); err != nil {
 				logPersistError(err)
 			}
@@ -356,6 +379,7 @@ func NewStorageWithPersistence(path string) (*Storage, error) {
 		dirty:       make(chan struct{}, 1),
 		quit:        make(chan struct{}),
 		flushDone:   make(chan struct{}),
+		debounce:    defaultDebounce,
 	}
 	if err := s.loadFromFile(path); err != nil {
 		return nil, err

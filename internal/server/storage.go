@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc/codes"
@@ -36,6 +38,8 @@ type Storage struct {
 	quit        chan struct{} // closed by Close to stop the flusher
 	flushDone   chan struct{} // closed by the flusher after its final flush
 	closeOnce   sync.Once     // guards Close
+	debounce    time.Duration // trailing debounce window for coalescing writes
+	flushCount  atomic.Int64  // number of snapshot writes performed (test instrumentation)
 }
 
 // StoredSecret represents a secret with all its versions in memory.

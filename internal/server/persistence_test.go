@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
@@ -233,6 +234,43 @@ func TestPersistence_ConfigFromEnv(t *testing.T) {
 		if got := loadPersistConfig(); got != "" {
 			t.Errorf("loadPersistConfig(%q) = %q, want empty", v, got)
 		}
+	}
+}
+
+// TestPersistence_Debounce verifies that a burst of sequential mutations is
+// coalesced into very few disk writes rather than one write per mutation.
+func TestPersistence_Debounce(t *testing.T) {
+	ctx := context.Background()
+	s, path := newPersistentStorage(t)
+
+	const n = 30
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("secret-%d", i)
+		if _, err := s.CreateSecret(ctx, "projects/p", id, &secretmanagerpb.Secret{}); err != nil {
+			t.Fatalf("CreateSecret(%s) error = %v", id, err)
+		}
+	}
+
+	// Within the debounce window the write is still deferred: the burst coalesces.
+	if got := s.flushCount.Load(); got != 0 {
+		t.Errorf("flushCount during debounce window = %d, want 0 (writes deferred)", got)
+	}
+
+	// After the window, the whole burst has collapsed into very few writes.
+	time.Sleep(3 * defaultDebounce)
+	if got := s.flushCount.Load(); got < 1 || got >= n {
+		t.Errorf("flushCount after debounce = %d, want between 1 and %d (coalesced)", got, n)
+	}
+
+	// State is intact after reload.
+	s.Close()
+	reloaded, err := NewStorageWithPersistence(path)
+	if err != nil {
+		t.Fatalf("reload error = %v", err)
+	}
+	defer reloaded.Close()
+	if got := reloaded.SecretCount(); got != n {
+		t.Errorf("after reload SecretCount = %d, want %d", got, n)
 	}
 }
 
