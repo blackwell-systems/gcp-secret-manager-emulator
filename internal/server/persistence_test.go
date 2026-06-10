@@ -212,19 +212,27 @@ func TestPersistence_Disabled(t *testing.T) {
 	s.Close() // must not panic or block
 }
 
-// TestPersistence_ConfigFromEnv verifies the env toggle and the imposed path.
+// TestPersistence_ConfigFromEnv verifies the env toggle (parsed with
+// strconv.ParseBool) and the imposed path.
 func TestPersistence_ConfigFromEnv(t *testing.T) {
+	want := filepath.Join(defaultDataDir, dataFileName)
+
 	if got := loadPersistConfig(); got != "" {
 		t.Errorf("loadPersistConfig() unset = %q, want empty", got)
 	}
-	t.Setenv(persistEnvVar, "true")
-	want := filepath.Join(defaultDataDir, dataFileName)
-	if got := loadPersistConfig(); got != want {
-		t.Errorf("loadPersistConfig() enabled = %q, want %q", got, want)
+
+	for _, v := range []string{"true", "1", "t", "TRUE"} {
+		t.Setenv(persistEnvVar, v)
+		if got := loadPersistConfig(); got != want {
+			t.Errorf("loadPersistConfig(%q) = %q, want %q", v, got, want)
+		}
 	}
-	t.Setenv(persistEnvVar, "false")
-	if got := loadPersistConfig(); got != "" {
-		t.Errorf("loadPersistConfig() false = %q, want empty", got)
+
+	for _, v := range []string{"false", "0", "f", "notabool"} {
+		t.Setenv(persistEnvVar, v)
+		if got := loadPersistConfig(); got != "" {
+			t.Errorf("loadPersistConfig(%q) = %q, want empty", v, got)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -26,8 +27,9 @@ import (
 // handled by the IAM emulator control plane, not this emulator).
 
 const (
-	// persistEnvVar toggles persistence on. Any of "1", "true", "yes" (case
-	// insensitive) enables it; anything else (or unset) keeps the in-memory default.
+	// persistEnvVar toggles persistence on. It is parsed with strconv.ParseBool,
+	// so "1", "t", "T", "TRUE", "true", "True" enable it and "0", "f", "false", …
+	// (or unset) keep the in-memory default.
 	persistEnvVar = "GCP_MOCK_PERSIST"
 
 	// defaultDataDir is the fixed, documented directory mounted as a volume when
@@ -46,12 +48,19 @@ const (
 // loadPersistConfig reads the persistence configuration from the environment and
 // returns the snapshot file path. An empty path means persistence is disabled.
 func loadPersistConfig() string {
-	switch v := os.Getenv(persistEnvVar); v {
-	case "1", "true", "TRUE", "True", "yes", "YES", "Yes":
-		return filepath.Join(defaultDataDir, dataFileName)
-	default:
+	v := os.Getenv(persistEnvVar)
+	if v == "" {
 		return ""
 	}
+	enabled, err := strconv.ParseBool(v)
+	if err != nil {
+		log.Printf("persistence: ignoring invalid %s=%q (want a boolean)", persistEnvVar, v)
+		return ""
+	}
+	if !enabled {
+		return ""
+	}
+	return filepath.Join(defaultDataDir, dataFileName)
 }
 
 // --- On-disk schema (decoupled from the in-memory structs) -------------------
