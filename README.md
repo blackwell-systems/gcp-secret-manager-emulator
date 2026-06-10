@@ -391,7 +391,8 @@ volumes:
   secret-data:
 ```
 
-A ready-to-use example is provided in [`docker-compose.standalone.yml`](docker-compose.standalone.yml).
+The same wiring is included (commented out, since persistence is opt-in) in
+[`docker-compose.standalone.yml`](docker-compose.standalone.yml) — uncomment the lines to enable it.
 
 > ⚠️ **Secrets are stored in plaintext JSON** on the mounted volume (the emulator does no
 > encryption at rest). This is intended for local development and CI only — never point it
