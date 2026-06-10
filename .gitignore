@@ -1,8 +1,9 @@
-# Binaries
-server
-server-rest
-server-dual
-gcp-secret-manager-emulator
+# Binaries (root-level build outputs only; anchored so they don't match the
+# internal/server and cmd/server* source directories)
+/server
+/server-rest
+/server-dual
+/gcp-secret-manager-emulator
 bin/
 *.exe
 *.dll

@@ -479,21 +479,34 @@ graph TB
 
 ## Design Decisions
 
-### 1. In-Memory Storage
+### 1. In-Memory Storage (with optional persistence)
 
-**Decision:** Use in-memory map instead of persistent storage.
+**Decision:** Use an in-memory map by default, with opt-in JSON file persistence.
 
 **Rationale:**
 - Fast execution (<1 second for full test suite)
 - Deterministic behavior (no file system dependencies)
 - Simple cleanup (just restart process)
 - Matches emulator use case (ephemeral testing)
+- When long-lived state is needed (`GCP_MOCK_PERSIST`), a single JSON snapshot is
+  loaded on startup and written back atomically by one background flusher
 
 **Trade-offs:**
-- - Data lost on restart
-- + No file I/O complexity
+- - Data lost on restart (default)
+- + No file I/O complexity on the default path
 - + No cleanup needed
 - + Fast test execution
+- + Optional durability without changing the default behavior or adding dependencies
+
+**Persistence design (when enabled):**
+- JSON chosen over SQLite to preserve the zero-dependency, `CGO_ENABLED=0` static
+  build and keep the snapshot human-inspectable for dev/CI
+- A versioned on-disk schema decoupled from the in-memory structs (proto fields such
+  as `Replication` serialized via `protojson`); the fixed path `/data/secrets.json`
+- A single background goroutine is the sole writer (mutations only mark state dirty),
+  which coalesces bursts, keeps disk I/O off the request path, and avoids stale-write
+  races; a final flush runs on graceful shutdown
+- Scope is secrets only — IAM policies are not persisted (control-plane concern)
 
 ### 2. Thread Safety via RWMutex
 
@@ -563,10 +576,9 @@ graph TB
 
 Potential features if needed by the community:
 
-1. **Persistence** - Optional file-based storage for long-running instances
-2. **Metrics** - Prometheus-style metrics for monitoring
-3. **Multiple Projects** - Currently all secrets in one project
-4. **IAM Enforcement** - Pre-flight permission checks via IAM Emulator control
+1. **Metrics** - Prometheus-style metrics for monitoring
+2. **Multiple Projects** - Currently all secrets in one project
+3. **IAM Enforcement** - Pre-flight permission checks via IAM Emulator control
    plane are available today (v1.2.0+). Per-resource IAM policy methods
    (SetIamPolicy, GetIamPolicy) are not planned — see ROADMAP.md.
 

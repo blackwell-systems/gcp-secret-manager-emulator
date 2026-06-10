@@ -4,3 +4,12 @@ services:
     ports:
       - "9090:9090"
       - "8080:8080"
+    environment:
+      # Persist secrets to /data/secrets.json so they survive `docker compose down/up`.
+      # Remove this line (and the volume below) to use the default in-memory storage.
+      - GCP_MOCK_PERSIST=true
+    volumes:
+      - secret-data:/data
+
+volumes:
+  secret-data:

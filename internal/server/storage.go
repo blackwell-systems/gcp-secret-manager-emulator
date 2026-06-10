@@ -21,9 +21,21 @@ import (
 
 // Storage is the in-memory storage for secrets and versions.
 // All operations are thread-safe using sync.RWMutex.
+//
+// When optional persistence is enabled (see NewStorageWithPersistence), the
+// persist* fields drive a background flusher that snapshots state to disk after
+// every mutation. They are nil/empty for the default in-memory storage, in which
+// case all persistence hooks are no-ops.
 type Storage struct {
 	mu      sync.RWMutex
 	secrets map[string]*StoredSecret // key: "projects/{project}/secrets/{secret-id}"
+
+	// Persistence (optional, opt-in). See persistence.go.
+	persistPath string        // "" means persistence disabled
+	dirty       chan struct{} // signals the flusher that state changed (cap 1)
+	quit        chan struct{} // closed by Close to stop the flusher
+	flushDone   chan struct{} // closed by the flusher after its final flush
+	closeOnce   sync.Once     // guards Close
 }
 
 // StoredSecret represents a secret with all its versions in memory.
@@ -144,6 +156,7 @@ func (s *Storage) CreateSecret(ctx context.Context, parent, secretID string, sec
 
 	s.secrets[secretName] = stored
 
+	s.markDirty()
 	return buildSecretProto(stored), nil
 }
 
@@ -288,6 +301,7 @@ func (s *Storage) UpdateSecret(ctx context.Context, secretName string, labels, a
 	// Regenerate etag on any mutation
 	stored.Etag = generateEtag(stored.Name, stored.CreateTime, fmt.Sprintf("%d", stored.NextVersion))
 
+	s.markDirty()
 	return buildSecretProto(stored), nil
 }
 
@@ -302,6 +316,7 @@ func (s *Storage) DeleteSecret(ctx context.Context, secretName string) error {
 	}
 
 	delete(s.secrets, secretName)
+	s.markDirty()
 	return nil
 }
 
@@ -337,6 +352,7 @@ func (s *Storage) AddSecretVersion(ctx context.Context, parent string, payload *
 
 	stored.Versions[versionID] = version
 
+	s.markDirty()
 	return buildVersionProto(versionName, version), nil
 }
 
@@ -617,6 +633,7 @@ func (s *Storage) DisableSecretVersion(ctx context.Context, versionName string) 
 	version.State = secretmanagerpb.SecretVersion_DISABLED
 	version.Etag = generateEtag(version.Name, timestamppb.Now(), version.State.String())
 
+	s.markDirty()
 	return buildVersionProto(versionName, version), nil
 }
 
@@ -657,6 +674,7 @@ func (s *Storage) EnableSecretVersion(ctx context.Context, versionName string) (
 	version.State = secretmanagerpb.SecretVersion_ENABLED
 	version.Etag = generateEtag(version.Name, timestamppb.Now(), version.State.String())
 
+	s.markDirty()
 	return buildVersionProto(versionName, version), nil
 }
 
@@ -699,6 +717,7 @@ func (s *Storage) DestroySecretVersion(ctx context.Context, versionName string) 
 	version.DestroyTime = timestamppb.Now()
 	version.Etag = generateEtag(version.Name, version.DestroyTime, "DESTROYED")
 
+	s.markDirty()
 	return buildVersionProto(versionName, version), nil
 }
 
