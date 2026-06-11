@@ -237,7 +237,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.1...v1.7.2
+[1.7.1]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.4.0...v1.6.0
 [1.4.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.2.1...v1.2.2

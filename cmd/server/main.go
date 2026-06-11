@@ -33,7 +33,7 @@ import (
 var (
 	port     = flag.Int("port", getEnvInt("GCP_MOCK_PORT", 9090), "Port to listen on")
 	logLevel = flag.String("log-level", getEnv("GCP_MOCK_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
-	version  = "1.3.0" // Will be updated during releases
+	version  = "1.7.2"
 )
 
 func main() {

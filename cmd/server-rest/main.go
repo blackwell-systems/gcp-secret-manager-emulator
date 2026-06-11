@@ -37,7 +37,7 @@ var (
 	httpPort = flag.Int("http-port", getEnvInt("GCP_MOCK_HTTP_PORT", 8080), "HTTP port to listen on")
 	grpcPort = flag.Int("grpc-port", getEnvInt("GCP_MOCK_GRPC_PORT", 9090), "gRPC port to listen on (internal)")
 	logLevel = flag.String("log-level", getEnv("GCP_MOCK_LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
-	version  = "1.3.0"
+	version  = "1.7.2"
 )
 
 func main() {
