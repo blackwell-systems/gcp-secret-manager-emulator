@@ -7,7 +7,7 @@
 //
 //   - Full gRPC API implementation compatible with cloud.google.com/go/secretmanager client
 //   - No authentication required - works entirely offline
-//   - In-memory storage with thread-safe operations
+//   - In-memory storage with thread-safe operations (optional JSON file persistence via GCP_MOCK_PERSIST)
 //   - Supports secrets, secret versions, labels, and pagination
 //   - Docker container available for CI/CD integration
 //

@@ -2,6 +2,15 @@
 
 This document outlines the planned features and improvements for the GCP Secret Manager Emulator.
 
+## Unreleased
+
+**Optional Persistence**
+- Opt-in JSON file persistence via `GCP_MOCK_PERSIST` (default remains in-memory)
+- Secrets loaded on startup and snapshotted to `/data/secrets.json` after every change
+- Zero new dependencies; preserves the `CGO_ENABLED=0` static build
+- Use case: development environments and integration test suites that need state to
+  survive `docker compose down/up`
+
 ## v1.3.0 - Current Release ✓  (2026-01-28)
 
 **IAM Enforcement — Production Parity**
@@ -96,12 +105,6 @@ docker run -p 9090:9090 -p 8080:8080 gcp-secret-manager-emulator-dual:latest
 ## Future Considerations
 
 These features may be considered based on user demand:
-
-### Optional Persistence
-- File-based storage option for long-running instances
-- JSON or SQLite backend
-- Opt-in (default remains in-memory)
-- Use case: Development environments, integration test suites
 
 ### Prometheus Metrics
 - Export operation counts, latency, error rates

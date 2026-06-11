@@ -49,9 +49,22 @@ type Server struct {
 }
 
 // NewServer creates a new mock Secret Manager server.
+//
+// Storage is in-memory by default. When GCP_MOCK_PERSIST is enabled, secrets are
+// persisted to and restored from a JSON snapshot file (see persistence.go); a
+// malformed existing snapshot is reported as an error rather than discarded.
 func NewServer() (*Server, error) {
+	storage := NewStorage()
+	if path := loadPersistConfig(); path != "" {
+		var err error
+		storage, err = NewStorageWithPersistence(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize persistent storage: %w", err)
+		}
+	}
+
 	s := &Server{
-		storage:    NewStorage(),
+		storage:    storage,
 		iamStorage: NewIAMStorage(),
 	}
 
@@ -442,4 +455,12 @@ func (s *Server) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermi
 // Storage returns the underlying storage (useful for testing).
 func (s *Server) Storage() *Storage {
 	return s.storage
+}
+
+// Close releases server resources. When persistence is enabled it performs a
+// final snapshot flush and stops the background flusher. It is safe to call
+// multiple times and is a no-op when persistence is disabled. Callers should
+// invoke it during graceful shutdown.
+func (s *Server) Close() {
+	s.storage.Close()
 }

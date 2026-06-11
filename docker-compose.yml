@@ -27,6 +27,12 @@ services:
       - GCP_MOCK_HTTP_PORT=8080
       - IAM_MODE=permissive
       - IAM_EMULATOR_HOST=iam-emulator:8080
+      # Persistence is opt-in and off by default. To keep secrets across restarts,
+      # uncomment the next line and the `volumes:` block below (plaintext JSON on
+      # the volume — local/CI use only):
+      # - GCP_MOCK_PERSIST=true
+    # volumes:
+    #   - secret-data:/data
     depends_on:
       iam-emulator:
         condition: service_healthy
@@ -68,3 +74,7 @@ services:
       - IAM_MODE=off
     profiles:
       - legacy
+
+# Uncomment to enable optional persistence (see the secret-manager-emulator service).
+# volumes:
+#   secret-data:

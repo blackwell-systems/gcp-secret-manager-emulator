@@ -11,6 +11,7 @@
 //
 //	GCP_MOCK_PORT        - Port to listen on (default: 9090)
 //	GCP_MOCK_LOG_LEVEL   - Log level: debug, info, warn, error (default: info)
+//	GCP_MOCK_PERSIST     - Persist secrets to /data/secrets.json (default: off, in-memory)
 package main
 
 import (
@@ -77,6 +78,7 @@ func main() {
 
 	log.Println("Shutting down server...")
 	grpcServer.GracefulStop()
+	srv.Close() // flush persisted state, if enabled
 	log.Println("Server stopped")
 }
 

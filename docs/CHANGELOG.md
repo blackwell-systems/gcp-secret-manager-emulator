@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Optional persistence** — set `GCP_MOCK_PERSIST=true` to persist secrets across
+  restarts. State is loaded on startup from and snapshotted to `/data/secrets.json`
+  (atomic writes by a single background flusher; final flush on graceful shutdown).
+  Opt-in and off by default, so the in-memory behavior and zero overhead are
+  unchanged. JSON backend keeps zero new dependencies and the `CGO_ENABLED=0` static
+  build. Only secrets are persisted (not IAM policies). `Dockerfile` now declares a
+  `/data` volume; `docker-compose*.yml` show the volume wiring. ⚠️ Secrets are written
+  as plaintext JSON — local/CI use only.
+
 ### Fixed
 - REST gateway (`server-dual`, `server-rest`) now correctly propagates the
   `X-Emulator-Principal` header to the gRPC layer. Previously the header was

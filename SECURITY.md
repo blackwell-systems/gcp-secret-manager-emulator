@@ -7,7 +7,8 @@ This project is a **testing emulator** designed for local development and CI/CD 
 ## Security Features
 
 - No authentication by default (optional IAM enforcement available via IAM Emulator)
-- In-memory storage (no persistent data)
+- In-memory storage by default (no persistent data)
+- Optional persistence (`GCP_MOCK_PERSIST`) writes secrets as **plaintext JSON** to `/data` with `0600` permissions — no encryption at rest
 - No network encryption (local gRPC only)
 - Runs as non-root user in Docker container
 
@@ -30,8 +31,8 @@ If you discover a security vulnerability in this emulator that could affect user
 The following are **not** considered security issues for this project:
 
 - Lack of authentication (by design - testing tool)
-- Lack of encryption (by design - local use only)
-- Data persistence (by design - ephemeral storage)
+- Lack of encryption (by design - local use only, including plaintext snapshots when `GCP_MOCK_PERSIST` is enabled)
+- Ephemeral storage by default, or plaintext file persistence when explicitly opted in (by design)
 - Production use issues (explicitly not supported)
 - Performance/DoS in testing scenarios
 

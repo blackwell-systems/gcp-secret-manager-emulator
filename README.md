@@ -368,6 +368,39 @@ services:
       - GCP_MOCK_LOG_LEVEL=debug
 ```
 
+### Persistence (Optional)
+
+By default the emulator keeps everything **in memory**, so secrets are lost when the
+container stops. To keep secrets across restarts, set `GCP_MOCK_PERSIST=true` and mount
+a volume at the fixed path **`/data`**. The emulator loads `/data/secrets.json` on startup
+and writes it back atomically after every change (and a final flush on graceful shutdown).
+
+```yaml
+services:
+  gcp-emulator:
+    image: gcp-secret-manager-emulator-dual:latest
+    ports:
+      - "9090:9090"
+      - "8080:8080"
+    environment:
+      - GCP_MOCK_PERSIST=true   # enable persistence
+    volumes:
+      - secret-data:/data       # secrets survive `docker compose down/up`
+
+volumes:
+  secret-data:
+```
+
+The same wiring is included (commented out, since persistence is opt-in) in
+[`docker-compose.standalone.yml`](docker-compose.standalone.yml) — uncomment the lines to enable it.
+
+> ⚠️ **Secrets are stored in plaintext JSON** on the mounted volume (the emulator does no
+> encryption at rest). This is intended for local development and CI only — never point it
+> at a volume holding real production secrets. See [SECURITY.md](SECURITY.md).
+
+> Persistence is opt-in: leave `GCP_MOCK_PERSIST` unset to keep the default, zero-overhead
+> in-memory behavior. Only secrets are persisted; IAM policies are not.
+
 ## Use Cases
 
 - **Local Development** - Test GCP Secret Manager integration without cloud access
@@ -473,6 +506,7 @@ IAM enforcement in this emulator is deliberately scoped for **authorization test
 | `GCP_MOCK_GRPC_PORT` | `9090` | gRPC port (`server-rest`, `server-dual`) |
 | `GCP_MOCK_HTTP_PORT` | `8080` | HTTP port (`server-rest`, `server-dual`) |
 | `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `GCP_MOCK_PERSIST` | `off` | Persist secrets to `/data/secrets.json` across restarts (see [Persistence](#persistence-optional)) |
 | `IAM_MODE` | `off` | IAM enforcement: off, permissive, strict |
 | `IAM_EMULATOR_HOST` | `localhost:8080` | IAM emulator address |
 
@@ -537,7 +571,7 @@ All Secret Manager operations are implemented.
 **Intentional Simplifications:**
 - Optional IAM enforcement (off by default, strict mode available for CI)
 - Centralized policy evaluation (via IAM Emulator, not per-resource policies)
-- No encryption at rest (in-memory storage)
+- In-memory storage by default; optional plaintext JSON persistence (no encryption at rest)
 - No replication or regional constraints
 - Simplified error responses (no retry-after headers)
 

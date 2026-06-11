@@ -62,11 +62,18 @@ EXPOSE 9090
 EXPOSE 8080
 
 # Run as non-root user for security
+# /data is the persistence mount point used when GCP_MOCK_PERSIST is enabled;
+# it must be writable by the non-root user.
 RUN addgroup -g 1000 gcpmock && \
     adduser -D -u 1000 -G gcpmock gcpmock && \
-    chown -R gcpmock:gcpmock /app
+    mkdir -p /data && \
+    chown -R gcpmock:gcpmock /app /data
 
 USER gcpmock
+
+# Optional persistence volume. Mount a host directory or named volume here and
+# set GCP_MOCK_PERSIST=true to keep secrets across restarts (default: in-memory).
+VOLUME ["/data"]
 
 # Set default environment variables based on variant
 ENV GCP_MOCK_LOG_LEVEL=info
