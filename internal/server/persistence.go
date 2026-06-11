@@ -250,7 +250,13 @@ func (s *Storage) loadFromFile(path string) error {
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("parse snapshot %q: %w", path, err)
 	}
-	return s.applySnapshot(&snap)
+	if err := s.applySnapshot(&snap); err != nil {
+		return err
+	}
+	// A snapshot was present (even if empty): runtime state takes precedence over
+	// any init/seed file, so record that we loaded from disk.
+	s.loadedFromDisk = true
+	return nil
 }
 
 // flush writes the current state to disk atomically (temp file + rename).

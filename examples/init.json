@@ -1,0 +1,16 @@
+{
+  "secrets": [
+    {
+      "project": "test-project",
+      "id": "db-password",
+      "value": "s3cr3t-value",
+      "labels": { "env": "dev" },
+      "annotations": { "team": "platform" }
+    },
+    {
+      "project": "test-project",
+      "id": "api-key",
+      "versions": ["key-v1", "key-v2"]
+    }
+  ]
+}

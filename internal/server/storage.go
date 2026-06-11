@@ -33,13 +33,14 @@ type Storage struct {
 	secrets map[string]*StoredSecret // key: "projects/{project}/secrets/{secret-id}"
 
 	// Persistence (optional, opt-in). See persistence.go.
-	persistPath string        // "" means persistence disabled
-	dirty       chan struct{} // signals the flusher that state changed (cap 1)
-	quit        chan struct{} // closed by Close to stop the flusher
-	flushDone   chan struct{} // closed by the flusher after its final flush
-	closeOnce   sync.Once     // guards Close
-	debounce    time.Duration // trailing debounce window for coalescing writes
-	flushCount  atomic.Int64  // number of snapshot writes performed (test instrumentation)
+	persistPath    string        // "" means persistence disabled
+	dirty          chan struct{} // signals the flusher that state changed (cap 1)
+	quit           chan struct{} // closed by Close to stop the flusher
+	flushDone      chan struct{} // closed by the flusher after its final flush
+	closeOnce      sync.Once     // guards Close
+	debounce       time.Duration // trailing debounce window for coalescing writes
+	flushCount     atomic.Int64  // number of snapshot writes performed (test instrumentation)
+	loadedFromDisk bool          // true if a persisted snapshot was read at startup (suppresses seeding)
 }
 
 // StoredSecret represents a secret with all its versions in memory.

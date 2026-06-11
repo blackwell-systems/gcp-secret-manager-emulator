@@ -63,6 +63,11 @@ func NewServer() (*Server, error) {
 		}
 	}
 
+	// Seed from the init file on a fresh store (no persisted snapshot loaded).
+	if err := storage.seedIfFresh(context.Background(), loadInitConfig()); err != nil {
+		return nil, fmt.Errorf("failed to apply init file: %w", err)
+	}
+
 	s := &Server{
 		storage:    storage,
 		iamStorage: NewIAMStorage(),

@@ -401,6 +401,69 @@ The same wiring is included (commented out, since persistence is opt-in) in
 > Persistence is opt-in: leave `GCP_MOCK_PERSIST` unset to keep the default, zero-overhead
 > in-memory behavior. Only secrets are persisted; IAM policies are not.
 
+### Seeding initial secrets (Optional)
+
+Set `GCP_MOCK_INIT_FILE` to a JSON file to pre-load secrets when the store starts **empty**.
+This is the seed/fixtures pattern (like Postgres' `docker-entrypoint-initdb.d`): the file is
+applied on a fresh store, but **ignored as soon as a persisted `secrets.json` has been loaded**,
+so your runtime changes are never overwritten. With persistence off, the file is applied on every
+start — handy for deterministic CI fixtures.
+
+The init file is replayed through the normal create/add-version paths, so etags, create times and
+checksums are generated exactly as for live requests.
+
+```json
+{
+  "secrets": [
+    {
+      "project": "test-project",
+      "id": "db-password",
+      "value": "s3cr3t-value",
+      "labels": { "env": "dev" },
+      "annotations": { "team": "platform" }
+    },
+    {
+      "project": "test-project",
+      "id": "api-key",
+      "versions": ["key-v1", "key-v2"]
+    }
+  ]
+}
+```
+
+- `project` and `id` are required. Use `value` for a single version, or `versions` for several
+  (the two are mutually exclusive). Values are UTF-8 strings.
+- `labels` and `annotations` are attributes of the **secret**, not of individual versions
+  (matching the GCP API), so they are set once regardless of how many versions you list.
+
+Mount the file read-only and point the env var at it:
+
+```yaml
+services:
+  gcp-emulator:
+    image: gcp-secret-manager-emulator-dual:latest
+    ports:
+      - "9090:9090"
+      - "8080:8080"
+    environment:
+      - GCP_MOCK_INIT_FILE=/init/init.json
+    volumes:
+      - ./init.json:/init/init.json:ro
+```
+
+A sample file is provided in [`examples/init.json`](examples/init.json).
+
+**Interaction with persistence:**
+
+| `GCP_MOCK_PERSIST` | `secrets.json` on disk | `GCP_MOCK_INIT_FILE` | Result |
+|---|---|---|---|
+| off | — | set | seed applied on every start |
+| on | absent | set | seed applied, then persisted |
+| on | present (even empty) | set | **seed ignored** — runtime state wins |
+
+> ⚠️ The init file also contains **plaintext secrets** — keep it out of version control if it
+> holds anything sensitive, and treat it as local/CI material only.
+
 ## Use Cases
 
 - **Local Development** - Test GCP Secret Manager integration without cloud access
@@ -507,6 +570,7 @@ IAM enforcement in this emulator is deliberately scoped for **authorization test
 | `GCP_MOCK_HTTP_PORT` | `8080` | HTTP port (`server-rest`, `server-dual`) |
 | `GCP_MOCK_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
 | `GCP_MOCK_PERSIST` | `off` | Persist secrets to `/data/secrets.json` across restarts (see [Persistence](#persistence-optional)) |
+| `GCP_MOCK_INIT_FILE` | _(unset)_ | Seed secrets from a JSON file on a fresh store (see [Seeding](#seeding-initial-secrets-optional)) |
 | `IAM_MODE` | `off` | IAM enforcement: off, permissive, strict |
 | `IAM_EMULATOR_HOST` | `localhost:8080` | IAM emulator address |
 

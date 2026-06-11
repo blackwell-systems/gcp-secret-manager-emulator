@@ -9,6 +9,7 @@ This project is a **testing emulator** designed for local development and CI/CD 
 - No authentication by default (optional IAM enforcement available via IAM Emulator)
 - In-memory storage by default (no persistent data)
 - Optional persistence (`GCP_MOCK_PERSIST`) writes secrets as **plaintext JSON** to `/data` with `0600` permissions — no encryption at rest
+- Optional seeding (`GCP_MOCK_INIT_FILE`) reads starting secrets from a **plaintext JSON** file — keep it out of version control if sensitive, local/CI only
 - No network encryption (local gRPC only)
 - Runs as non-root user in Docker container
 

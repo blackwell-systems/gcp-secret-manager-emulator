@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Optional seeding** — set `GCP_MOCK_INIT_FILE` to a JSON file to pre-load secrets
+  when the store starts empty. Applied on a fresh store and ignored once a persisted
+  `secrets.json` has been loaded (runtime state wins); with persistence off it applies
+  on every start. Replayed through the normal create/add-version paths, so
+  etags/create times/crc32c are generated as for live requests. Secret-level
+  `labels`/`annotations` supported; `value` (single) or `versions` (multiple). Opt-in
+  and off by default. ⚠️ The init file holds plaintext secrets — local/CI use only.
 - **Optional persistence** — set `GCP_MOCK_PERSIST=true` to persist secrets across
   restarts. State is loaded on startup from and snapshotted to `/data/secrets.json`
   (atomic writes by a single background flusher; final flush on graceful shutdown).
