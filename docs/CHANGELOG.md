@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as plaintext JSON — local/CI use only.
 
 ### Fixed
+- `server-rest`/`server-dual` no longer abort on graceful shutdown: the HTTP gateway
+  goroutine treated the expected `http.ErrServerClosed` from `Stop` as fatal
+  (`log.Fatalf` → `os.Exit`), skipping the persistence final flush. A mutation made
+  within the debounce window just before shutdown could be lost. The gateway now
+  ignores `ErrServerClosed` so `srv.Close()` runs and the latest state is flushed.
 - REST gateway (`server-dual`, `server-rest`) now correctly propagates the
   `X-Emulator-Principal` header to the gRPC layer. Previously the header was
   silently dropped, effectively bypassing IAM enforcement for all HTTP clients

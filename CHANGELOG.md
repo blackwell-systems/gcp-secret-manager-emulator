@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `server-rest` and `server-dual` no longer abort on graceful shutdown: the HTTP gateway goroutine treated the expected `http.ErrServerClosed` from `Stop` as a fatal error (`log.Fatalf` → `os.Exit`), which skipped the persistence final flush. As a result, a mutation made within the persistence debounce window just before shutdown could be lost. The gateway now ignores `ErrServerClosed`, so `srv.Close()` runs and the latest state is flushed.
+
 ## [1.8.0] - 2026-06-11
 
 ### Added

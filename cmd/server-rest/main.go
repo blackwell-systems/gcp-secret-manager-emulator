@@ -17,10 +17,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -86,7 +88,9 @@ func main() {
 		log.Printf("HTTP gateway listening at %s", httpAddr)
 		log.Printf("Ready to accept REST requests")
 		log.Printf("Example: curl http://localhost:%d/v1/projects/test-project/secrets", *httpPort)
-		if err := gatewayServer.Start(ctx, httpAddr); err != nil {
+		// ErrServerClosed is the normal result of a graceful Stop; only a real
+		// failure should abort the process (and skip the persistence flush).
+		if err := gatewayServer.Start(ctx, httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Failed to serve HTTP: %v", err)
 		}
 	}()
