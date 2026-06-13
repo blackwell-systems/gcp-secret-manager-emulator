@@ -508,6 +508,13 @@ graph TB
   races; a final flush runs on graceful shutdown
 - Scope is secrets only — IAM policies are not persisted (control-plane concern)
 
+**Seeding (when `GCP_MOCK_INIT_FILE` is set):**
+- A starting set of secrets is loaded from a JSON file, but only on a fresh store —
+  it is skipped once a persisted snapshot has been loaded, so runtime state always
+  wins (the seed/fixtures pattern). With persistence off, it applies on every start.
+- Replayed through the normal CreateSecret/AddSecretVersion paths, so etags, create
+  times and crc32c are generated as for live requests.
+
 ### 2. Thread Safety via RWMutex
 
 **Decision:** Protect all storage access with `sync.RWMutex`.

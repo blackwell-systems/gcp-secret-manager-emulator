@@ -13,14 +13,17 @@
 //	GCP_MOCK_HTTP_PORT   - HTTP port to listen on (default: 8080)
 //	GCP_MOCK_LOG_LEVEL   - Log level: debug, info, warn, error (default: info)
 //	GCP_MOCK_PERSIST     - Persist secrets to /data/secrets.json (default: off, in-memory)
+//	GCP_MOCK_INIT_FILE   - Seed secrets from a JSON file on a fresh store (default: off)
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -85,7 +88,9 @@ func main() {
 		log.Printf("Ready to accept both gRPC and REST requests")
 		log.Printf("gRPC: localhost:%d", *grpcPort)
 		log.Printf("REST: http://localhost:%d/v1/projects/{project}/secrets", *httpPort)
-		if err := gatewayServer.Start(ctx, httpAddr); err != nil {
+		// ErrServerClosed is the normal result of a graceful Stop; only a real
+		// failure should abort the process (and skip the persistence flush).
+		if err := gatewayServer.Start(ctx, httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Failed to serve HTTP: %v", err)
 		}
 	}()

@@ -12,6 +12,7 @@
 //	GCP_MOCK_PORT        - Port to listen on (default: 9090)
 //	GCP_MOCK_LOG_LEVEL   - Log level: debug, info, warn, error (default: info)
 //	GCP_MOCK_PERSIST     - Persist secrets to /data/secrets.json (default: off, in-memory)
+//	GCP_MOCK_INIT_FILE   - Seed secrets from a JSON file on a fresh store (default: off)
 package main
 
 import (

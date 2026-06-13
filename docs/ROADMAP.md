@@ -4,6 +4,12 @@ This document outlines the planned features and improvements for the GCP Secret 
 
 ## Unreleased
 
+**Init / seed file**
+- Opt-in seeding via `GCP_MOCK_INIT_FILE` pointing at a JSON file of starting secrets
+- Applied only on a fresh store; skipped once a persisted snapshot exists (runtime wins)
+- Replayed through the normal API paths; secret-level labels/annotations supported
+- Use case: pre-populating dev/CI environments with known fixtures
+
 **Optional Persistence**
 - Opt-in JSON file persistence via `GCP_MOCK_PERSIST` (default remains in-memory)
 - Secrets loaded on startup and snapshotted to `/data/secrets.json` after every change
