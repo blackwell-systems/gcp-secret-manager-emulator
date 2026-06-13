@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-13
+
 ### Added
 
-- **Optional seeding** — set `GCP_MOCK_INIT_FILE` to a JSON file to pre-load secrets when the store starts empty. Applied on a fresh store and ignored once a persisted `secrets.json` has been loaded (runtime state wins); with persistence off it applies on every start. Replayed through the normal create/add-version paths, so etags/create times/crc32c are generated as for live requests. Secret-level `labels`/`annotations` supported; `value` (single version) or `versions` (multiple). Opt-in and off by default. ⚠️ The init file holds plaintext secrets — local/CI use only.
+- **Optional seeding** — set `GCP_MOCK_INIT_FILE` to a JSON file to pre-load secrets when the store starts empty. Applied on a fresh store and ignored once a persisted `secrets.json` has been loaded (runtime state wins); with persistence off it applies on every start. Replayed through the normal create/add-version paths, so etags/create times/crc32c are generated as for live requests. Secret-level `labels`/`annotations` supported; `value` (single version) or `versions` (multiple). Opt-in and off by default. ⚠️ The init file holds plaintext secrets — local/CI use only. (contributed by [@jmarette](https://github.com/jmarette) in [#7](https://github.com/blackwell-systems/gcp-secret-manager-emulator/pull/7))
 
 ### Fixed
 
-- `server-rest` and `server-dual` no longer abort on graceful shutdown: the HTTP gateway goroutine treated the expected `http.ErrServerClosed` from `Stop` as a fatal error (`log.Fatalf` → `os.Exit`), which skipped the persistence final flush. As a result, a mutation made within the persistence debounce window just before shutdown could be lost. The gateway now ignores `ErrServerClosed`, so `srv.Close()` runs and the latest state is flushed.
+- `server-rest` and `server-dual` no longer abort on graceful shutdown: the HTTP gateway goroutine treated the expected `http.ErrServerClosed` from `Stop` as a fatal error (`log.Fatalf` → `os.Exit`), which skipped the persistence final flush. As a result, a mutation made within the persistence debounce window just before shutdown could be lost. The gateway now ignores `ErrServerClosed`, so `srv.Close()` runs and the latest state is flushed. (contributed by [@jmarette](https://github.com/jmarette) in [#7](https://github.com/blackwell-systems/gcp-secret-manager-emulator/pull/7))
 
 ## [1.8.0] - 2026-06-11
 
@@ -253,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.2...v1.8.0
 [1.7.2]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/blackwell-systems/gcp-secret-manager-emulator/compare/v1.7.0...v1.7.1
