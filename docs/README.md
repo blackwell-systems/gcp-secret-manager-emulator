@@ -12,6 +12,8 @@
 
 A production-grade implementation providing complete, behaviorally-accurate Secret Manager semantics for local development and CI/CD. **Dual protocol support**: Native gRPC + REST/HTTP for maximum flexibility. No GCP credentials or network connectivity required.
 
+**Used by** Apereo CAS, Flipt and Camunda in their test suites, and by six other projects. See [Adopters](ADOPTERS.md).
+
 ## Features
 
 - **Dual Protocol Support** - Native gRPC + REST/HTTP APIs (choose what fits your workflow)

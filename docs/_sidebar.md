@@ -3,7 +3,6 @@
 - **Getting Started**
   - [Overview](/)
   - [Quick Start](/#quick-start)
-  - [Quick Start](/#quick-start)
   - [Docker Usage](/#docker)
 
 - **Reference**
@@ -22,6 +21,7 @@
   - [Pagination](API-REFERENCE.md#pagination)
 
 - **Project Info**
+  - [Adopters](ADOPTERS.md)
   - [Use Cases](/#use-cases)
   - [Differences from Real GCP](/#differences-from-real-gcp)
   - [Testing Guide](API-REFERENCE.md#testing-strategies)
