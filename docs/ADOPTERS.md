@@ -1,9 +1,10 @@
 # Adopters
 
-Projects that run the GCP Secret Manager Emulator, each confirmed in the project's own repository. Every entry links to the file where the emulator is used. Last checked October 2026.
+Projects that run the GCP Secret Manager Emulator, each confirmed in the project's own repository. Every entry links to the file where the emulator is used. Last checked November 2026.
 
 | Project | What it is | How it uses the emulator |
 |---|---|---|
+| [Consensys web3signer](#consensys-web3signer) | Ethereum validator signing service | GCP Secret Manager acceptance tests in CI |
 | [Apereo CAS](#apereo-cas) (11.4K stars) | Identity and single sign-on platform | CI tests for its GCP Secret Manager support |
 | [Flipt](#flipt) (4.9K stars) | Feature flag platform | Integration tests |
 | [Camunda](#camunda) (4.3K stars) | Process orchestration | End-to-end tests of its GCP secret store |
@@ -13,6 +14,13 @@ Projects that run the GCP Secret Manager Emulator, each confirmed in the project
 | [suve](#suve) | CLI and TUI for cloud parameter and secret stores | Test and end-to-end environments |
 | [SeedStream](#seedstream) | Test data generator | Integration tests |
 | [dbadmin-mono](#dbadmin-mono) | Database admin dashboard | Docker Compose secrets setup |
+
+## Consensys web3signer
+
+[web3signer](https://github.com/Consensys-Incorporated/web3signer) is Consensys's open-source signing service for Ethereum consensus and execution clients, with keys held in external vaults including GCP Secret Manager. Its GCP Secret Manager acceptance tests run in CI against the dual-protocol image through Testcontainers, behind an nginx TLS proxy, with no GCP credentials.
+
+- [`gradle/versions.gradle`](https://github.com/Consensys-Incorporated/web3signer/blob/HEAD/gradle/versions.gradle): `ghcr.io/blackwell-systems/gcp-secret-manager-emulator-dual:1.9.0`, pinned by digest
+- [`acceptance-tests/README.md`](https://github.com/Consensys-Incorporated/web3signer/blob/HEAD/acceptance-tests/README.md): how the tests start the emulator
 
 ## Apereo CAS
 

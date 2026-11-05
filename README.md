@@ -49,7 +49,7 @@ curl -X POST "http://localhost:8080/v1/projects/my-project/secrets/my-secret:add
 curl "http://localhost:8080/v1/projects/my-project/secrets/my-secret/versions/1:access"
 ```
 
-**Used by** [Apereo CAS](https://github.com/apereo/cas) (11.4K stars), [Flipt](https://github.com/flipt-io/flipt) (4.9K) and [Camunda](https://github.com/camunda/camunda) (4.3K) in their test suites, and by [minisky](https://github.com/qamarudeenm/minisky), [dature](https://github.com/reagento/dature), [adorsys status-list-server](https://github.com/adorsys/status-list-server), [suve](https://github.com/mpyw/suve), [SeedStream](https://github.com/mferretti/SeedStream) and [dbadmin-mono](https://github.com/lagdo/dbadmin-mono) ([full list](#whos-using-this)).
+**Used by** [Consensys web3signer](https://github.com/Consensys-Incorporated/web3signer), [Apereo CAS](https://github.com/apereo/cas) (11.4K stars), [Flipt](https://github.com/flipt-io/flipt) (4.9K) and [Camunda](https://github.com/camunda/camunda) (4.3K) in their test suites, and by [minisky](https://github.com/qamarudeenm/minisky), [dature](https://github.com/reagento/dature), [adorsys status-list-server](https://github.com/adorsys/status-list-server), [suve](https://github.com/mpyw/suve), [SeedStream](https://github.com/mferretti/SeedStream) and [dbadmin-mono](https://github.com/lagdo/dbadmin-mono) ([full list](#whos-using-this)).
 
 ---
 
@@ -674,10 +674,11 @@ Maintained by **Dayna Blackwell** — founder of Blackwell Systems, building ref
 
 ## Who's Using This?
 
-Projects that run this emulator, each confirmed in the project's own repository (October 2026). The [Adopters page](https://blackwell-systems.github.io/gcp-secret-manager-emulator/#/ADOPTERS) links to the exact file in each one.
+Projects that run this emulator, each confirmed in the project's own repository (November 2026). The [Adopters page](https://blackwell-systems.github.io/gcp-secret-manager-emulator/#/ADOPTERS) links to the exact file in each one.
 
 | Project | What it is | How it uses the emulator |
 |---|---|---|
+| [Consensys web3signer](https://github.com/Consensys-Incorporated/web3signer) | Ethereum validator signing service | GCP Secret Manager acceptance tests in CI, through Testcontainers |
 | [Apereo CAS](https://github.com/apereo/cas) (11.4K stars) | Identity and single sign-on platform | CI tests for its GCP Secret Manager support |
 | [Flipt](https://github.com/flipt-io/flipt) (4.9K stars) | Feature flag platform | Integration tests |
 | [Camunda](https://github.com/camunda/camunda) (4.3K stars) | Process orchestration | End-to-end tests of its GCP secret store |
